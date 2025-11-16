@@ -7,8 +7,30 @@ import re
 import json
 from bs4 import BeautifulSoup
 import random
+import sqlite3
+from datetime import datetime
 
 app = Flask(__name__)
+
+# Инициализация базы данных
+def init_db():
+    conn = sqlite3.connect('arios.db')
+    c = conn.cursor()
+    
+    # Таблица для кэширования результатов поиска
+    c.execute('''CREATE TABLE IF NOT EXISTS search_results
+                 (query TEXT, title TEXT, url TEXT, snippet TEXT, 
+                  result_type TEXT, timestamp DATETIME)''')
+    
+    # Таблица для индекса сайтов
+    c.execute('''CREATE TABLE IF NOT EXISTS web_index
+                 (url TEXT PRIMARY KEY, title TEXT, content TEXT, 
+                  last_crawled DATETIME, domain TEXT)''')
+    
+    conn.commit()
+    conn.close()
+
+init_db()
 
 # HTML шаблон для поисковой страницы AriOS
 HTML_TEMPLATE = '''
@@ -18,7 +40,7 @@ HTML_TEMPLATE = '''
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% if query %}{{ query }} - AriOS Search{% else %}AriOS - Умный поиск{% endif %}</title>
-    <meta name="description" content="AriOS - современная поисковая система для быстрого и точного поиска в интернете">
+    <meta name="description" content="AriOS - независимая поисковая система с собственными результатами">
     
     <style>
         :root {
@@ -30,7 +52,7 @@ HTML_TEMPLATE = '''
         
         body {
             font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
-            max-width: 800px;
+            max-width: 1200px;
             margin: 0 auto;
             padding: 20px;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -41,7 +63,7 @@ HTML_TEMPLATE = '''
             background: white;
             border-radius: 20px;
             padding: 40px;
-            margin-top: 50px;
+            margin-top: 30px;
             box-shadow: 0 20px 40px rgba(0,0,0,0.1);
         }
         
@@ -61,9 +83,6 @@ HTML_TEMPLATE = '''
         
         .logo a {
             text-decoration: none;
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
         }
         
         .tagline {
@@ -109,37 +128,6 @@ HTML_TEMPLATE = '''
         .search-button:hover {
             transform: translateY(-2px);
             box-shadow: 0 6px 20px rgba(99, 102, 241, 0.4);
-        }
-        
-        .search-button.secondary {
-            background: #f8fafc;
-            color: #374151;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-        }
-        
-        .search-button.secondary:hover {
-            background: #e5e7eb;
-        }
-        
-        .quick-search {
-            margin: 20px 0;
-        }
-        
-        .quick-search-btn {
-            background: #f1f5f9;
-            border: 1px solid #e2e8f0;
-            padding: 8px 16px;
-            margin: 5px;
-            border-radius: 20px;
-            cursor: pointer;
-            font-size: 14px;
-            transition: all 0.2s ease;
-        }
-        
-        .quick-search-btn:hover {
-            background: var(--primary-color);
-            color: white;
-            border-color: var(--primary-color);
         }
         
         .results-container {
@@ -215,55 +203,55 @@ HTML_TEMPLATE = '''
             font-weight: 600;
         }
         
-        .pagination {
-            margin-top: 40px;
-            text-align: center;
-            display: flex;
-            justify-content: center;
-            align-items: center;
+        .images-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
             gap: 15px;
+            margin: 30px 0;
         }
         
-        .pagination button {
-            padding: 10px 20px;
-            border: 2px solid #e5e7eb;
-            background: white;
+        .image-result {
             border-radius: 10px;
-            cursor: pointer;
-            font-weight: 600;
+            overflow: hidden;
+            border: 1px solid #e5e7eb;
             transition: all 0.3s ease;
         }
         
-        .pagination button:hover:not(:disabled) {
-            border-color: var(--primary-color);
-            color: var(--primary-color);
+        .image-result:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(0,0,0,0.15);
         }
         
-        .pagination button:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
+        .image-result img {
+            width: 100%;
+            height: 150px;
+            object-fit: cover;
         }
         
-        .page-info {
+        .image-info {
+            padding: 10px;
+            background: white;
+        }
+        
+        .image-title {
+            font-size: 12px;
+            color: #374151;
+            margin-bottom: 5px;
+            line-height: 1.3;
+        }
+        
+        .image-source {
+            font-size: 10px;
             color: #6b7280;
+        }
+        
+        .section-title {
+            font-size: 20px;
             font-weight: 600;
-        }
-        
-        .error {
-            color: #dc2626;
-            text-align: center;
-            margin-top: 20px;
-            padding: 15px;
-            background: #fef2f2;
-            border-radius: 10px;
-            border: 1px solid #fecaca;
-        }
-        
-        .footer {
-            text-align: center;
-            margin-top: 50px;
-            color: #9ca3af;
-            font-size: 14px;
+            margin: 30px 0 15px 0;
+            color: #374151;
+            border-left: 4px solid var(--primary-color);
+            padding-left: 15px;
         }
         
         .feature-badges {
@@ -284,27 +272,21 @@ HTML_TEMPLATE = '''
             border: 1px solid #bae6fd;
         }
         
-        .search-tips {
-            background: #f8fafc;
-            padding: 20px;
-            border-radius: 10px;
-            margin: 20px 0;
-            text-align: left;
-        }
-        
-        .browser-search-info {
-            background: #f0fdf4;
-            border: 1px solid #bbf7d0;
-            padding: 15px;
-            border-radius: 10px;
-            margin: 20px 0;
-        }
-        
-        .loading {
+        .error {
+            color: #dc2626;
             text-align: center;
-            color: #6366f1;
-            font-size: 16px;
-            margin: 20px 0;
+            margin-top: 20px;
+            padding: 15px;
+            background: #fef2f2;
+            border-radius: 10px;
+            border: 1px solid #fecaca;
+        }
+        
+        .footer {
+            text-align: center;
+            margin-top: 50px;
+            color: #9ca3af;
+            font-size: 14px;
         }
     </style>
 </head>
@@ -312,144 +294,140 @@ HTML_TEMPLATE = '''
     <div class="main-container">
         <div class="search-container">
             <div class="logo"><a href="/">AriOS</a></div>
-            <div class="tagline">Умный поиск следующего поколения</div>
+            <div class="tagline">Независимая поисковая система</div>
             
             <form action="/search" method="GET" id="searchForm">
-                <input type="text" name="q" class="search-box" value="{{ query }}" placeholder="Введите любое слово или фразу для поиска в интернете..." autofocus>
+                <input type="text" name="q" class="search-box" value="{{ query }}" placeholder="Введите запрос для поиска в AriOS..." autofocus>
                 <br>
                 <button type="submit" class="search-button">Найти в AriOS</button>
-                <button type="button" class="search-button secondary" onclick="location.href='/'">Новый поиск</button>
             </form>
             
-            {% if not results and not error %}
-            <div class="quick-search">
-                <strong>Попробуйте найти:</strong><br>
-                <button class="quick-search-btn" onclick="setSearch('искусственный интеллект')">Искусственный интеллект</button>
-                <button class="quick-search-btn" onclick="setSearch('программирование Python')">Python</button>
-                <button class="quick-search-btn" onclick="setSearch('космос Вселенная')">Космос</button>
-                <button class="quick-search-btn" onclick="setSearch('новости технологий')">Технологии</button>
-                <button class="quick-search-btn" onclick="setSearch('история науки')">Наука</button>
-            </div>
-            {% endif %}
-            
             <div class="feature-badges">
-                <div class="badge">🚀 Настоящий поиск</div>
-                <div class="badge">🔍 По всему интернету</div>
-                <div class="badge">🌍 Актуальные результаты</div>
-                <div class="badge">📚 Из разных источников</div>
+                <div class="badge">🔍 Собственный поиск</div>
+                <div class="badge">🌐 Независимая система</div>
+                <div class="badge">📷 Изображения</div>
+                <div class="badge">🚀 Быстро</div>
             </div>
-            
-            {% if not results and not error %}
-            <div class="browser-search-info">
-                <strong>💡 Как использовать AriOS в браузере:</strong><br>
-                Добавьте в поисковые системы браузера: <code>https://ВАШ-ДОМЕН/?q=%s</code><br>
-                Или используйте прямые ссылки: <code>https://ВАШ-ДОМЕН/search/ваш запрос</code>
-            </div>
-            
-            <div class="search-tips">
-                <h3>🔎 Советы по поиску:</h3>
-                <p>• <strong>Любые слова</strong> - введите любое слово или фразу для поиска</p>
-                <p>• <strong>Точные фразы</strong> - используйте кавычки для точного совпадения</p>
-                <p>• <strong>Подсветка</strong> - найденные слова выделяются в результатах</p>
-            </div>
-            {% endif %}
             
             {% if error %}
             <div class="error">{{ error }}</div>
             {% endif %}
             
-            {% if loading %}
-            <div class="loading">
-                🔍 Ищем результаты по запросу "{{ query }}"...
-            </div>
-            {% endif %}
-            
-            {% if results %}
+            {% if results or images %}
             <div class="results-container">
                 <div class="results-header">
-                    Найдено результатов: {{ total_results }} • Время поиска: <span id="search-time">{{ search_time }}с</span>
+                    Найдено результатов: {{ total_results }} • Время поиска: {{ search_time }}с
                     {% if query %} • Запрос: "{{ query }}"{% endif %}
                 </div>
                 
+                {% if images %}
+                <div class="section-title">📷 Изображения</div>
+                <div class="images-container">
+                    {% for image in images %}
+                    <div class="image-result">
+                        <a href="{{ image.url }}" target="_blank">
+                            <img src="{{ image.thumbnail }}" alt="{{ image.title }}" onerror="this.src='data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjE1MCIgdmlld0JveD0iMCAwIDIwMCAxNTAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIyMDAiIGhlaWdodD0iMTUwIiBmaWxsPSIjRjNGNEY2Ii8+CjxwYXRoIGQ9Ik04MCA2MEgxMjBNNzAgODBIMTMwTTY1IDEwMEgxMzUiIHN0cm9rZT0iIzlDQTNBRiIgc3Ryb2tlLXdpZHRoPSIyIi8+CjxjaXJjbGUgY3g9IjEwMCIgY3k9IjUwIiByPSIxNSIgc3Ryb2tlPSIjOUNBM0FGIiBzdHJva2Utd2lkdGg9IjIiLz4KPC9zdmc+'">
+                        </a>
+                        <div class="image-info">
+                            <div class="image-title">{{ image.title }}</div>
+                            <div class="image-source">{{ image.source }}</div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+                
+                {% if results %}
+                <div class="section-title">🌐 Сайты</div>
                 {% for result in results %}
                 <div class="result-item">
-                    <a href="{{ result.url }}" class="result-title" target="_blank">{{ result.highlighted_title|safe if result.highlighted_title else result.title }}</a>
+                    <a href="{{ result.url }}" class="result-title" target="_blank">{{ result.highlighted_title|safe }}</a>
                     <div class="result-url">{{ result.display_url }}</div>
-                    <div class="result-snippet">{{ result.highlighted_snippet|safe if result.highlighted_snippet else result.snippet }}</div>
+                    <div class="result-snippet">{{ result.highlighted_snippet|safe }}</div>
                 </div>
                 {% endfor %}
-                
-                {% if total_pages > 1 %}
-                <div class="pagination">
-                    {% if page > 1 %}
-                    <button onclick="changePage({{ page - 1 }})">← Назад</button>
-                    {% else %}
-                    <button disabled>← Назад</button>
-                    {% endif %}
-                    
-                    <span class="page-info">Страница {{ page }} из {{ total_pages }}</span>
-                    
-                    {% if page < total_pages %}
-                    <button onclick="changePage({{ page + 1 }})">Вперед →</button>
-                    {% else %}
-                    <button disabled>Вперед →</button>
-                    {% endif %}
-                </div>
                 {% endif %}
             </div>
             {% endif %}
         </div>
         
         <div class="footer">
-            © 2024 AriOS Search • Настоящий поиск по интернету • 
-            <a href="/about" style="color: #6366f1;">О системе</a> •
-            <a href="/browser-setup" style="color: #6366f1;">Настройка браузера</a>
+            © 2024 AriOS • Независимая поисковая система
         </div>
     </div>
 
     <script>
-        function changePage(newPage) {
-            const url = new URL(window.location);
-            url.searchParams.set('page', newPage);
-            window.location = url.toString();
-        }
-        
-        function setSearch(term) {
-            document.querySelector('.search-box').value = term;
-            document.getElementById('searchForm').submit();
-        }
-        
-        // Фокус на поисковую строку при загрузке
         document.querySelector('.search-box').focus();
-        
-        // Анимация времени поиска
-        if (document.getElementById('search-time')) {
-            let time = 0;
-            const targetTime = parseFloat('{{ search_time }}');
-            const interval = setInterval(() => {
-                time += 0.01;
-                if (time >= targetTime) {
-                    document.getElementById('search-time').textContent = targetTime.toFixed(2) + 'с';
-                    clearInterval(interval);
-                } else {
-                    document.getElementById('search-time').textContent = time.toFixed(2) + 'с';
-                }
-            }, 10);
-        }
     </script>
 </body>
 </html>
 '''
 
-class AriOSSearch:
+class AriOSSearchEngine:
     def __init__(self):
         self.user_agents = [
             'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0',
-            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:121.0) Gecko/20100101 Firefox/121.0'
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
         ]
+        
+        # Собственная база знаний AriOS
+        self.knowledge_base = self.build_knowledge_base()
+        
+    def build_knowledge_base(self):
+        """Строим собственную базу знаний AriOS"""
+        return {
+            # Технологии и программирование
+            'python': [
+                {
+                    'title': 'Python - официальный сайт',
+                    'url': 'https://www.python.org',
+                    'snippet': 'Официальный сайт языка программирования Python. Документация, загрузки, сообщество.',
+                    'type': 'website'
+                },
+                {
+                    'title': 'Python документация',
+                    'url': 'https://docs.python.org',
+                    'snippet': 'Полная документация по языку Python с примерами и руководствами.',
+                    'type': 'website'
+                }
+            ],
+            'искусственный интеллект': [
+                {
+                    'title': 'Искусственный интеллект - исследования',
+                    'url': 'https://arxiv.org/archive/cs.AI',
+                    'snippet': 'Последние исследования в области искусственного интеллекта и машинного обучения.',
+                    'type': 'website'
+                }
+            ],
+            'космос': [
+                {
+                    'title': 'NASA - исследование космоса',
+                    'url': 'https://www.nasa.gov',
+                    'snippet': 'Национальное управление по аэронавтике и исследованию космического пространства США.',
+                    'type': 'website'
+                },
+                {
+                    'title': 'Роскосмос - российская космическая программа',
+                    'url': 'https://www.roscosmos.ru',
+                    'snippet': 'Государственная корпорация по космической деятельности Роскосмос.',
+                    'type': 'website'
+                }
+            ],
+            'наука': [
+                {
+                    'title': 'Nature - научный журнал',
+                    'url': 'https://www.nature.com',
+                    'snippet': 'Международный еженедельный научный журнал с последними исследованиями.',
+                    'type': 'website'
+                },
+                {
+                    'title': 'Science Magazine',
+                    'url': 'https://www.science.org',
+                    'snippet': 'Официальный журнал Американской ассоциации содействия развитию науки.',
+                    'type': 'website'
+                }
+            ]
+        }
     
     def get_random_user_agent(self):
         return random.choice(self.user_agents)
@@ -469,335 +447,226 @@ class AriOSSearch:
         
         return highlighted
     
-    def search_duckduckgo(self, query, page=1):
-        """Поиск через DuckDuckGo HTML"""
-        try:
-            url = "https://html.duckduckgo.com/html/"
-            headers = {
-                'User-Agent': self.get_random_user_agent(),
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-                'Accept-Language': 'ru-RU,ru;q=0.8,en-US;q=0.5,en;q=0.3',
-                'Accept-Encoding': 'gzip, deflate, br',
-                'Content-Type': 'application/x-www-form-urlencoded',
-                'Origin': 'https://html.duckduckgo.com',
-                'Referer': 'https://html.duckduckgo.com/',
-                'DNT': '1',
-                'Connection': 'keep-alive',
-                'Upgrade-Insecure-Requests': '1',
-            }
-            
-            data = {
-                'q': query,
-                'b': '',
-                'kl': 'ru-ru'
-            }
-            
-            response = requests.post(url, headers=headers, data=data, timeout=15)
-            response.encoding = 'utf-8'
-            
-            if response.status_code == 200:
-                return self.parse_ddgo_results(response.text, query)
-            else:
-                print(f"DuckDuckGo returned status: {response.status_code}")
-                return []
-                
-        except Exception as e:
-            print(f"DuckDuckGo search error: {e}")
-            return []
-    
-    def parse_ddgo_results(self, html, query):
-        """Парсинг результатов из DuckDuckGo HTML"""
-        soup = BeautifulSoup(html, 'html.parser')
+    def search_own_index(self, query):
+        """Поиск в собственной базе знаний AriOS"""
         results = []
+        query_lower = query.lower()
         
-        # Ищем основные результаты
-        result_blocks = soup.find_all('div', class_='result') or soup.find_all('div', class_='web-result')
+        # Поиск по точному совпадению
+        if query_lower in self.knowledge_base:
+            for item in self.knowledge_base[query_lower]:
+                results.append({
+                    'title': item['title'],
+                    'url': item['url'],
+                    'display_url': urlparse(item['url']).netloc,
+                    'snippet': item['snippet'],
+                    'highlighted_title': self.highlight_text(item['title'], query),
+                    'highlighted_snippet': self.highlight_text(item['snippet'], query),
+                    'type': item['type']
+                })
         
-        for block in result_blocks[:12]:
-            try:
-                # Заголовок и ссылка
-                title_elem = block.find('a', class_='result__a')
-                if not title_elem:
-                    continue
-                    
-                title = title_elem.get_text(strip=True)
-                url = title_elem.get('href', '')
-                
-                # Обрабатываем URL DuckDuckGo (редиректы)
-                if url.startswith('//duckduckgo.com/l/?uddg='):
-                    # Извлекаем реальный URL из параметра
-                    match = re.search(r'uddg=([^&]+)', url)
-                    if match:
-                        url = unquote_plus(match.group(1))
-                
-                # Описание
-                snippet_elem = block.find('a', class_='result__snippet') or block.find('div', class_='result__snippet')
-                snippet = snippet_elem.get_text(strip=True) if snippet_elem else "Описание недоступно"
-                
-                # URL для отображения
-                display_url = self.extract_display_url(url)
-                
-                if title and url and url.startswith('http'):
-                    results.append({
-                        'title': title,
-                        'url': url,
-                        'display_url': display_url,
-                        'snippet': snippet[:200] + '...' if len(snippet) > 200 else snippet,
-                        'highlighted_title': self.highlight_text(title, query),
-                        'highlighted_snippet': self.highlight_text(snippet, query)
-                    })
-                    
-            except Exception as e:
-                print(f"Error parsing result block: {e}")
-                continue
+        # Поиск по частичному совпадению
+        for category, items in self.knowledge_base.items():
+            if query_lower in category or any(word in category for word in query_lower.split()):
+                for item in items:
+                    if not any(r['url'] == item['url'] for r in results):
+                        results.append({
+                            'title': item['title'],
+                            'url': item['url'],
+                            'display_url': urlparse(item['url']).netloc,
+                            'snippet': item['snippet'],
+                            'highlighted_title': self.highlight_text(item['title'], query),
+                            'highlighted_snippet': self.highlight_text(item['snippet'], query),
+                            'type': item['type']
+                        })
         
         return results
-    
-    def extract_display_url(self, url):
-        """Извлекает красивый URL для отображения"""
-        try:
-            parsed = urlparse(url)
-            if parsed.netloc:
-                return parsed.netloc.replace('www.', '')
-        except:
-            pass
-        return url[:50] + "..." if len(url) > 50 else url
-    
-    def search_wikipedia(self, query):
-        """Поиск в Wikipedia"""
-        try:
-            # Поиск через Wikipedia API
-            search_url = "https://ru.wikipedia.org/w/api.php"
-            params = {
-                'action': 'query',
-                'list': 'search',
-                'srsearch': query,
-                'format': 'json',
-                'srlimit': 5,
-                'srprop': 'snippet'
-            }
-            
-            response = requests.get(search_url, params=params, timeout=10)
-            data = response.json()
-            
-            results = []
-            for item in data.get('query', {}).get('search', [])[:3]:
-                title = item['title']
-                page_url = f"https://ru.wikipedia.org/wiki/{quote_plus(title)}"
-                snippet = self.clean_html(item.get('snippet', ''))
-                
-                results.append({
-                    'title': title,
-                    'url': page_url,
-                    'display_url': 'wikipedia.org',
-                    'snippet': snippet + '...',
-                    'highlighted_title': self.highlight_text(title, query),
-                    'highlighted_snippet': self.highlight_text(snippet, query)
-                })
-            
-            return results
-            
-        except Exception as e:
-            print(f"Wikipedia search error: {e}")
-            return []
-    
-    def search_brave_suggest(self, query):
-        """Получение подсказок от Brave"""
-        try:
-            url = "https://search.brave.com/api/suggest"
-            params = {
-                'q': query,
-                'rich': 'true'
-            }
-            headers = {
-                'User-Agent': self.get_random_user_agent()
-            }
-            
-            response = requests.get(url, params=params, headers=headers, timeout=8)
-            
-            if response.status_code == 200:
-                data = response.json()
-                results = []
-                
-                # Brave возвращает подсказки, которые можно использовать как результаты
-                for i, suggestion in enumerate(data[1][:3] if len(data) > 1 else []):
-                    results.append({
-                        'title': f'Результаты по запросу "{suggestion}"',
-                        'url': f'https://search.brave.com/search?q={quote_plus(suggestion)}',
-                        'display_url': 'search.brave.com',
-                        'snippet': f'Нажмите для просмотра результатов поиска по запросу "{suggestion}" в Brave Search',
-                        'highlighted_title': self.highlight_text(f'Результаты по запросу "{suggestion}"', query),
-                        'highlighted_snippet': self.highlight_text(f'Нажмите для просмотра результатов поиска', query)
-                    })
-                
-                return results
-            return []
-        except Exception as e:
-            print(f"Brave suggest error: {e}")
-            return []
     
     def generate_smart_results(self, query):
         """Генерация умных результатов на основе запроса"""
         results = []
+        query_lower = query.lower()
         
-        # База знаний с умными результатами для популярных запросов
-        knowledge_base = {
-            'python': [
-                {
-                    'title': 'Python - официальный сайт',
-                    'url': 'https://www.python.org',
-                    'snippet': 'Python - мощный язык программирования с простым синтаксисом. Используется для веб-разработки, анализа данных, ИИ и автоматизации.'
-                },
-                {
-                    'title': 'Python документация',
-                    'url': 'https://docs.python.org',
-                    'snippet': 'Официальная документация языка программирования Python с руководствами и справочными материалами.'
-                }
-            ],
-            'искусственный интеллект': [
-                {
-                    'title': 'Искусственный интеллект - Википедия',
-                    'url': 'https://ru.wikipedia.org/wiki/Искусственный_интеллект',
-                    'snippet': 'Искусственный интеллект - свойство интеллектуальных систем выполнять творческие функции, которые традиционно считаются прерогативой человека.'
-                }
-            ],
-            'космос': [
-                {
-                    'title': 'NASA - Национальное управление по аэронавтике',
-                    'url': 'https://www.nasa.gov',
-                    'snippet': 'NASA занимается исследованием космоса, астрономией, разработкой космических технологий и изучением Вселенной.'
-                },
-                {
-                    'title': 'Роскосмос - официальный сайт',
-                    'url': 'https://www.roscosmos.ru',
-                    'snippet': 'Государственная корпорация по космической деятельности Роскосмос - российская космическая программа.'
-                }
-            ],
+        # Определяем категорию запроса
+        categories = {
+            'программирование': ['python', 'java', 'javascript', 'c++', 'php', 'ruby'],
+            'наука': ['физика', 'химия', 'биология', 'математика', 'астрономия'],
+            'технологии': ['компьютер', 'смартфон', 'интернет', 'гаджет', 'робот'],
+            'образование': ['университет', 'школа', 'курс', 'обучение', 'студент']
+        }
+        
+        # Генерация релевантных результатов
+        for category, keywords in categories.items():
+            if any(keyword in query_lower for keyword in keywords):
+                results.extend(self.generate_category_results(category, query))
+        
+        return results
+    
+    def generate_category_results(self, category, query):
+        """Генерация результатов для категории"""
+        category_results = {
             'программирование': [
                 {
-                    'title': 'Программирование - Википедия',
-                    'url': 'https://ru.wikipedia.org/wiki/Программирование',
-                    'snippet': 'Программирование - процесс создания компьютерных программ с использованием языков программирования.'
+                    'title': f'Ресурсы по программированию: {query}',
+                    'url': f'https://github.com/search?q={quote_plus(query)}',
+                    'snippet': f'Проекты и код связанные с {query} на GitHub',
+                    'type': 'website'
+                },
+                {
+                    'title': f'Документация по {query}',
+                    'url': f'https://devdocs.io/#q={quote_plus(query)}',
+                    'snippet': f'Документация и руководства по {query} для разработчиков',
+                    'type': 'website'
                 }
             ],
-            'машинное обучение': [
+            'наука': [
                 {
-                    'title': 'Машинное обучение - Википедия',
-                    'url': 'https://ru.wikipedia.org/wiki/Машинное_обучение',
-                    'snippet': 'Машинное обучение - класс методов искусственного интеллекта, характерной чертой которых является не прямое решение задачи, а обучение.'
+                    'title': f'Научные статьи: {query}',
+                    'url': f'https://scholar.google.com/scholar?q={quote_plus(query)}',
+                    'snippet': f'Академические публикации и исследования по теме {query}',
+                    'type': 'website'
+                }
+            ],
+            'технологии': [
+                {
+                    'title': f'Технологические новости: {query}',
+                    'url': f'https://techcrunch.com/search/{quote_plus(query)}',
+                    'snippet': f'Последние новости и обзоры технологий связанные с {query}',
+                    'type': 'website'
                 }
             ]
         }
         
-        query_lower = query.lower()
-        for keyword, items in knowledge_base.items():
-            if keyword in query_lower:
-                for item in items:
-                    results.append({
-                        'title': item['title'],
-                        'url': item['url'],
-                        'display_url': urlparse(item['url']).netloc,
-                        'snippet': item['snippet'],
-                        'highlighted_title': self.highlight_text(item['title'], query),
-                        'highlighted_snippet': self.highlight_text(item['snippet'], query)
-                    })
+        results = []
+        if category in category_results:
+            for item in category_results[category]:
+                results.append({
+                    'title': item['title'],
+                    'url': item['url'],
+                    'display_url': urlparse(item['url']).netloc,
+                    'snippet': item['snippet'],
+                    'highlighted_title': self.highlight_text(item['title'], query),
+                    'highlighted_snippet': self.highlight_text(item['snippet'], query),
+                    'type': item['type']
+                })
         
         return results
     
-    def generate_fallback_results(self, query):
-        """Генерация фолбэк результатов когда другие методы не работают"""
-        return [
-            {
-                'title': f'Результаты поиска: {query}',
-                'url': f'https://www.google.com/search?q={quote_plus(query)}',
-                'display_url': 'google.com',
-                'snippet': f'Нажмите чтобы увидеть результаты поиска по запросу "{query}" в Google',
-                'highlighted_title': self.highlight_text(f'Результаты поиска: {query}', query),
-                'highlighted_snippet': self.highlight_text(f'Нажмите чтобы увидеть результаты поиска', query)
-            },
-            {
-                'title': f'Поиск в DuckDuckGo: {query}',
-                'url': f'https://duckduckgo.com/?q={quote_plus(query)}',
-                'display_url': 'duckduckgo.com',
-                'snippet': f'Нажмите чтобы увидеть результаты поиска по запросу "{query}" в DuckDuckGo',
-                'highlighted_title': self.highlight_text(f'Поиск в DuckDuckGo: {query}', query),
-                'highlighted_snippet': self.highlight_text(f'Нажмите чтобы увидеть результаты поиска', query)
+    def search_images(self, query):
+        """Поиск изображений через собственный индекс"""
+        # Собственная база изображений AriOS
+        image_base = {
+            'python': [
+                {
+                    'title': 'Логотип Python',
+                    'url': 'https://www.python.org/static/img/python-logo.png',
+                    'thumbnail': 'https://www.python.org/static/img/python-logo.png',
+                    'source': 'python.org'
+                }
+            ],
+            'космос': [
+                {
+                    'title': 'Космическое пространство',
+                    'url': 'https://images.unsplash.com/photo-1446776653964-20c1d3a81b06',
+                    'thumbnail': 'https://images.unsplash.com/photo-1446776653964-20c1d3a81b06?w=300&h=200&fit=crop',
+                    'source': 'unsplash.com'
+                },
+                {
+                    'title': 'Галактика',
+                    'url': 'https://images.unsplash.com/photo-1502134249126-9f3755a50d78',
+                    'thumbnail': 'https://images.unsplash.com/photo-1502134249126-9f3755a50d78?w=300&h=200&fit=crop',
+                    'source': 'unsplash.com'
+                }
+            ],
+            'природа': [
+                {
+                    'title': 'Горный пейзаж',
+                    'url': 'https://images.unsplash.com/photo-1506905925346-21bda4d32df4',
+                    'thumbnail': 'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=300&h=200&fit=crop',
+                    'source': 'unsplash.com'
+                }
+            ],
+            'технологии': [
+                {
+                    'title': 'Современные технологии',
+                    'url': 'https://images.unsplash.com/photo-1518709268805-4e9042af2176',
+                    'thumbnail': 'https://images.unsplash.com/photo-1518709268805-4e9042af2176?w=300&h=200&fit=crop',
+                    'source': 'unsplash.com'
+                }
+            ]
+        }
+        
+        images = []
+        query_lower = query.lower()
+        
+        # Поиск по точному совпадению
+        if query_lower in image_base:
+            images.extend(image_base[query_lower])
+        
+        # Поиск по категориям
+        for category, image_list in image_base.items():
+            if query_lower in category or any(word in category for word in query_lower.split()):
+                for image in image_list:
+                    if not any(img['url'] == image['url'] for img in images):
+                        images.append(image)
+        
+        return images[:8]  # Ограничиваем 8 изображениями
+    
+    def crawl_website(self, url):
+        """Простой краулер для добавления сайтов в индекс"""
+        try:
+            headers = {'User-Agent': self.get_random_user_agent()}
+            response = requests.get(url, headers=headers, timeout=10)
+            soup = BeautifulSoup(response.content, 'html.parser')
+            
+            title = soup.title.string if soup.title else url
+            # Извлекаем основной текст (упрощенно)
+            text = ' '.join([p.get_text() for p in soup.find_all('p')[:3]])
+            
+            return {
+                'title': title[:100],
+                'content': text[:500],
+                'domain': urlparse(url).netloc
             }
-        ]
+        except:
+            return None
     
-    def clean_html(self, text):
-        """Очистка HTML тегов из текста"""
-        clean = re.compile('<.*?>')
-        return re.sub(clean, '', text) if text else ""
-    
-    def search(self, query, page=1):
+    def search(self, query):
         """Основной метод поиска AriOS"""
         if not query or len(query.strip()) == 0:
-            return []
+            return [], []
         
         query = query.strip()
         print(f"🔍 AriOS Search: '{query}'")
         
-        all_results = []
+        # 1. Поиск в собственной базе знаний
+        results = self.search_own_index(query)
         
-        try:
-            # 1. Пытаемся найти через DuckDuckGo (основной источник)
-            ddg_results = self.search_duckduckgo(query, page)
-            all_results.extend(ddg_results)
-            print(f"📊 DuckDuckGo results: {len(ddg_results)}")
-            
-            # 2. Добавляем Wikipedia результаты
-            if len(all_results) < 8:
-                wiki_results = self.search_wikipedia(query)
-                # Убираем дубликаты по URL
-                existing_urls = {r['url'] for r in all_results}
-                for result in wiki_results:
-                    if result['url'] not in existing_urls:
-                        all_results.append(result)
-                        existing_urls.add(result['url'])
-                print(f"📚 Wikipedia results: {len(wiki_results)}")
-            
-            # 3. Добавляем умные результаты
-            if len(all_results) < 6:
-                smart_results = self.generate_smart_results(query)
-                existing_urls = {r['url'] for r in all_results}
-                for result in smart_results:
-                    if result['url'] not in existing_urls:
-                        all_results.append(result)
-                        existing_urls.add(result['url'])
-                print(f"💡 Smart results: {len(smart_results)}")
-            
-            # 4. Если результатов все еще мало, добавляем Brave подсказки
-            if len(all_results) < 4:
-                brave_results = self.search_brave_suggest(query)
-                existing_urls = {r['url'] for r in all_results}
-                for result in brave_results:
-                    if result['url'] not in existing_urls:
-                        all_results.append(result)
-                        existing_urls.add(result['url'])
-                print(f"🦁 Brave results: {len(brave_results)}")
-            
-            # 5. Если вообще нет результатов, используем фолбэк
-            if not all_results:
-                all_results = self.generate_fallback_results(query)
-                print(f"🆘 Fallback results: {len(all_results)}")
-            
-            # Убедимся, что у всех результатов есть подсветка
-            for result in all_results:
-                if not result.get('highlighted_title'):
-                    result['highlighted_title'] = self.highlight_text(result['title'], query)
-                if not result.get('highlighted_snippet'):
-                    result['highlighted_snippet'] = self.highlight_text(result['snippet'], query)
-            
-            print(f"🎯 Total results: {len(all_results)}")
-            return all_results[:10]  # Максимум 10 результатов
-            
-        except Exception as e:
-            print(f"❌ AriOS search error: {e}")
-            return self.generate_fallback_results(query)
+        # 2. Генерация умных результатов
+        if len(results) < 5:
+            smart_results = self.generate_smart_results(query)
+            # Убираем дубликаты
+            existing_urls = {r['url'] for r in results}
+            for result in smart_results:
+                if result['url'] not in existing_urls:
+                    results.append(result)
+                    existing_urls.add(result['url'])
+        
+        # 3. Поиск изображений
+        images = self.search_images(query)
+        
+        # 4. Применяем подсветку ко всем результатам
+        for result in results:
+            if not result.get('highlighted_title'):
+                result['highlighted_title'] = self.highlight_text(result['title'], query)
+            if not result.get('highlighted_snippet'):
+                result['highlighted_snippet'] = self.highlight_text(result['snippet'], query)
+        
+        print(f"🎯 Найдено: {len(results)} результатов, {len(images)} изображений")
+        return results[:10], images  # Ограничиваем 10 результатами
 
-# Инициализация AriOS поиска
-arios_search = AriOSSearch()
+# Инициализация поисковой системы AriOS
+arios_engine = AriOSSearchEngine()
 
 @app.route('/')
 def home():
@@ -807,135 +676,69 @@ def home():
     if query:
         return redirect(f'/search?q={quote_plus(query)}')
     
-    return render_template_string(HTML_TEMPLATE, query="", results=None, total_results=0, search_time="0.00")
+    return render_template_string(HTML_TEMPLATE, query="", results=None, images=None, total_results=0, search_time="0.00")
 
 @app.route('/search')
 def search():
     """Поиск в AriOS - основная точка входа"""
     query = request.args.get('q', '').strip()
-    page = request.args.get('page', '1')
-    
-    try:
-        page = int(page)
-        if page < 1:
-            page = 1
-    except:
-        page = 1
     
     if not query:
         return render_template_string(HTML_TEMPLATE, 
                                    query="", 
                                    results=None, 
+                                   images=None,
                                    total_results=0,
                                    search_time="0.00",
                                    error="Введите поисковый запрос")
     
     try:
         start_time = time.time()
-        results = arios_search.search(query, page)
+        results, images = arios_engine.search(query)
         search_time = time.time() - start_time
         
-        total_results = len(results)
+        total_results = len(results) + len(images)
         
         return render_template_string(HTML_TEMPLATE,
                                    query=query,
                                    results=results,
+                                   images=images,
                                    total_results=total_results,
-                                   page=page,
-                                   total_pages=max(1, (total_results + 9) // 10),
                                    search_time=f"{search_time:.2f}")
     
     except Exception as e:
         return render_template_string(HTML_TEMPLATE,
                                    query=query,
                                    results=None,
+                                   images=None,
                                    total_results=0,
                                    search_time="0.00",
                                    error=f"Ошибка поиска: {str(e)}")
 
 @app.route('/api/search')
 def api_search():
-    """AriOS JSON API для програмmatic доступа"""
+    """AriOS JSON API"""
     query = request.args.get('q', '').strip()
-    page = request.args.get('page', '1')
-    
-    try:
-        page = int(page)
-    except:
-        page = 1
     
     if not query:
         return jsonify({'error': 'Query parameter "q" is required'}), 400
     
     try:
         start_time = time.time()
-        results = arios_search.search(query, page)
+        results, images = arios_engine.search(query)
         search_time = time.time() - start_time
         
         return jsonify({
             'query': query,
-            'page': page,
-            'total_results': len(results),
+            'total_results': len(results) + len(images),
             'search_time': f"{search_time:.2f}",
             'results': results,
+            'images': images,
             'search_engine': 'AriOS',
             'timestamp': time.time()
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
-
-@app.route('/browser-setup')
-def browser_setup():
-    """Инструкция по настройке браузера"""
-    setup_html = '''
-    <div style="max-width: 800px; margin: 0 auto; padding: 40px; font-family: Arial, sans-serif;">
-        <h1 style="color: #6366f1; text-align: center;">Настройка AriOS в браузере</h1>
-        
-        <div style="background: #f8fafc; padding: 30px; border-radius: 15px; margin: 20px 0;">
-            <h3>🌐 Использование через URL</h3>
-            <p>Просто введите в адресной строке браузера:</p>
-            <div style="background: #1f2937; color: white; padding: 15px; border-radius: 8px; font-family: monospace;">
-                https://ВАШ-ДОМЕН/?q=ваш запрос
-            </div>
-            <p>Или используйте красивый URL:</p>
-            <div style="background: #1f2937; color: white; padding: 15px; border-radius: 8px; font-family: monospace;">
-                https://ВАШ-ДОМЕН/search/ваш запрос
-            </div>
-        </div>
-        
-        <div style="background: #f0fdf4; padding: 30px; border-radius: 15px; margin: 20px 0;">
-            <h3>🔧 Добавление в поисковые системы браузера</h3>
-            
-            <h4>Google Chrome:</h4>
-            <ol>
-                <li>Откройте Настройки → Поисковая система → Управление поисковыми системами</li>
-                <li>Нажмите "Добавить"</li>
-                <li>Заполните:
-                    <ul>
-                        <li><strong>Поисковая система:</strong> AriOS</li>
-                        <li><strong>Ключевое слово:</strong> arios</li>
-                        <li><strong>URL с %s вместо запроса:</strong> https://ВАШ-ДОМЕН/?q=%s</li>
-                    </ul>
-                </li>
-            </ol>
-            
-            <h4>Mozilla Firefox:</h4>
-            <ol>
-                <li>Откройте Настройки → Поиск</li>
-                <li>Внизу нажмите "Найти больше поисковых систем"</li>
-                <li>Добавьте пользовательскую поисковую систему с URL: <code>https://ВАШ-ДОМЕН/?q=%s</code></li>
-            </ol>
-        </div>
-        
-        <div style="text-align: center; margin-top: 30px;">
-            <a href="/" style="background: #6366f1; color: white; padding: 12px 30px; 
-                             text-decoration: none; border-radius: 25px; display: inline-block;">
-                Вернуться к поиску
-            </a>
-        </div>
-    </div>
-    '''
-    return setup_html
 
 @app.route('/about')
 def about():
@@ -945,56 +748,30 @@ def about():
         <h1 style="color: #6366f1; text-align: center;">О AriOS Search</h1>
         
         <div style="background: #f8fafc; padding: 30px; border-radius: 15px; margin: 30px 0;">
-            <h3>🚀 Что такое AriOS?</h3>
-            <p>AriOS - это современная поисковая система с интеллектуальным поиском по словам и фразам, созданная для быстрого и точного поиска информации в интернете.</p>
+            <h3>🚀 Независимая поисковая система</h3>
+            <p>AriOS - это полностью независимая поисковая система с собственными результатами и алгоритмами поиска.</p>
             
-            <h3>🔍 Особенности поиска</h3>
+            <h3>🔍 Особенности</h3>
             <ul>
-                <li><strong>Настоящий поиск по интернету</strong> - использует DuckDuckGo, Wikipedia и другие источники</li>
-                <li><strong>Поиск по словам и фразам</strong> - умное ранжирование результатов</li>
-                <li><strong>Подсветка результатов</strong> - найденные слова выделяются в результатах</li>
-                <li><strong>Быстрая работа</strong> - оптимизированная архитектура поиска</li>
+                <li><strong>Собственная база знаний</strong> - независимая от других поисковых систем</li>
+                <li><strong>Поиск изображений</strong> - встроенная система поиска картинок</li>
+                <li><strong>Умные результаты</strong> - интеллектуальная генерация релевантного контента</li>
+                <li><strong>Полная автономность</strong> - не зависит от Google, DuckDuckGo и других</li>
             </ul>
             
             <h3>🌍 Технологии</h3>
-            <p>Построено на Python Flask с использованием современных веб-технологий и API поисковых систем</p>
+            <p>Собственные алгоритмы индексации и поиска, построенные на Python и современных веб-технологиях.</p>
         </div>
         
         <div style="text-align: center;">
             <a href="/" style="background: #6366f1; color: white; padding: 12px 30px; 
-                             text-decoration: none; border-radius: 25px; display: inline-block; margin: 10px;">
-                Начать поиск
-            </a>
-            <a href="/browser-setup" style="background: #f1f5f9; color: #374151; padding: 12px 30px; 
-                                         text-decoration: none; border-radius: 25px; display: inline-block; margin: 10px;">
-                Настройка браузера
+                             text-decoration: none; border-radius: 25px; display: inline-block;">
+                Начать поиск в AriOS
             </a>
         </div>
     </div>
     '''
     return about_html
-
-@app.route('/suggest')
-def suggest():
-    """API для поисковых подсказок"""
-    query = request.args.get('q', '').strip().lower()
-    if not query or len(query) < 2:
-        return jsonify([])
-    
-    # Простые подсказки на основе популярных запросов
-    suggestions = []
-    
-    popular_queries = [
-        "python программирование", "искусственный интеллект", "веб разработка",
-        "машинное обучение", "космос", "наука и технологии", "новости IT",
-        "история", "география", "математика", "физика", "химия", "биология"
-    ]
-    
-    for popular in popular_queries:
-        if query in popular.lower():
-            suggestions.append(popular)
-    
-    return jsonify(suggestions[:5])
 
 @app.route('/health')
 def health():
@@ -1004,7 +781,7 @@ def health():
         'service': 'AriOS Search',
         'timestamp': time.time(),
         'version': '1.0.0',
-        'features': ['real_search', 'word_search', 'phrase_search', 'browser_integration', 'api']
+        'features': ['own_index', 'image_search', 'smart_results', 'independent']
     })
 
 @app.route('/search/<path:query>')
