@@ -24,8 +24,11 @@ app_status = {
 def self_ping():
     """Отправляет запросы самому себе чтобы держать приложение активным"""
     try:
-        base_url = os.environ.get('RENDER_EXTERNAL_URL', 'https://arios-yqnm.onrender.com')
-        if not base_url:
+        # Определяем базовый URL автоматически
+        if 'RENDER_EXTERNAL_URL' in os.environ:
+            base_url = os.environ['RENDER_EXTERNAL_URL']
+        else:
+            # Для локальной разработки или если переменная не установлена
             base_url = 'https://arios-yqnm.onrender.com'
             
         health_url = f"{base_url}/health"
@@ -1052,21 +1055,9 @@ def direct_search(query):
         return redirect('/')
 
 # Запускаем само-пинг при старте приложения
-@app.before_first_request
-def startup():
-    """Запускает фоновые процессы при старте приложения"""
-    print("🚀 Starting AriOS Search Engine...")
-    success = start_background_scheduler()
-    if success:
-        print("✅ AriOS started successfully with auto-ping!")
-    else:
-        print("⚠️ AriOS started but auto-ping may not be working")
+start_background_scheduler()
 
 if __name__ == '__main__':
-    # Запускаем планировщик при старте
-    print("🔧 Initializing AriOS...")
-    start_background_scheduler()
-    
     port = int(os.environ.get('PORT', 5000))
-    print(f"🌐 Starting server on port {port}...")
+    print(f"🌐 Starting AriOS server on port {port}...")
     app.run(host='0.0.0.0', port=port, debug=False)
