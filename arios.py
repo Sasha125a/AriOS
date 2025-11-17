@@ -9,6 +9,7 @@ from bs4 import BeautifulSoup
 import random
 import threading
 import schedule
+import html
 
 app = Flask(__name__)
 
@@ -98,7 +99,7 @@ def start_background_scheduler():
         print(f"❌ Failed to start scheduler: {e}")
         return False
 
-# HTML шаблон для поисковой страницы AriOS (остается без изменений)
+# HTML шаблон для поисковой страницы AriOS
 HTML_TEMPLATE = '''
 <!DOCTYPE html>
 <html lang="ru">
@@ -109,7 +110,6 @@ HTML_TEMPLATE = '''
     <meta name="description" content="AriOS - независимая поисковая система с реальными результатами">
     
     <style>
-        /* Стили остаются без изменений */
         :root {
             --primary-color: #6366f1;
             --primary-hover: #4f46e5;
@@ -701,7 +701,7 @@ HTML_TEMPLATE = '''
                         <div class="video-result">
                             <a href="{{ video.url }}" target="_blank">
                                 <img src="{{ video.thumbnail }}" alt="{{ video.title }}" class="video-thumbnail"
-                                     onerror="this.src='data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjE4MCIgdmlld0JveD0iMCAwIDMwMCAxODAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIzMDAiIGhlaWdodD0iMTgwIiBmaWxsPSIjRjNGNEY2Ii8+CjxwYXRoIGQ9Ik0xMjAgODBMMTYwIDEwMEwxMjAgMTIwVjgwWiIgZmlsbD0iIzlDQTNBRiIvPgo8L3N2Zz4='">
+                                     onerror="this.src='data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjE4MCIgdmlld0JveD0iMCAwIDMwMCAxODAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDA0L3N2ZyI+CjxyZWN0IHdpZHRoPSIzMDAiIGhlaWdodD0iMTgwIiBmaWxsPSIjRjNGNEY2Ii8+CjxwYXRoIGQ9Ik0xMjAgODBMMTYwIDEwMEwxMjAgMTIwVjgwWiIgZmlsbD0iIzlDQTNBRiIvPgo8L3N2Zz4='">
                             </a>
                             <div class="video-info">
                                 <div class="video-title">{{ video.title }}</div>
@@ -775,8 +775,40 @@ class AriOSRealSearch:
         self.user_agents = [
             'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         ]
-    
+        
+        # База знаний популярных сайтов для поиска
+        self.popular_sites = [
+            "https://wikipedia.org",
+            "https://github.com", 
+            "https://stackoverflow.com",
+            "https://reddit.com",
+            "https://medium.com",
+            "https://quora.com",
+            "https://bbc.com",
+            "https://cnn.com",
+            "https://nationalgeographic.com",
+            "https://ted.com"
+        ]
+        
+        # Сайты с изображениями
+        self.image_sites = [
+            "https://unsplash.com",
+            "https://pixabay.com",
+            "https://pexels.com",
+            "https://flickr.com",
+            "https://imgur.com"
+        ]
+        
+        # Видео платформы
+        self.video_sites = [
+            "https://youtube.com",
+            "https://vimeo.com",
+            "https://dailymotion.com",
+            "https://rutube.ru"
+        ]
+
     def get_random_user_agent(self):
         return random.choice(self.user_agents)
     
@@ -796,458 +828,487 @@ class AriOSRealSearch:
         return highlighted
     
     def search_websites(self, query):
-        """Поиск реальных веб-сайтов через DuckDuckGo"""
+        """Поиск веб-сайтов по собственному алгоритму"""
         try:
-            url = "https://html.duckduckgo.com/html/"
-            headers = {
-                'User-Agent': self.get_random_user_agent(),
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-                'Accept-Language': 'ru-RU,ru;q=0.8,en-US;q=0.5,en;q=0.3',
-                'Content-Type': 'application/x-www-form-urlencoded',
-                'Origin': 'https://html.duckduckgo.com',
-                'Referer': 'https://html.duckduckgo.com/',
-            }
-            
-            data = {
-                'q': query,
-                'b': '',
-                'kl': 'ru-ru'
-            }
-            
-            response = requests.post(url, headers=headers, data=data, timeout=10)
-            response.encoding = 'utf-8'
-            
-            if response.status_code == 200:
-                return self.parse_website_results(response.text, query)
-            else:
-                return self.get_fallback_websites(query)
-                
-        except Exception as e:
-            print(f"Website search error: {e}")
-            return self.get_fallback_websites(query)
-    
-    def parse_website_results(self, html, query):
-        """Парсинг реальных результатов поиска"""
-        soup = BeautifulSoup(html, 'html.parser')
-        results = []
-        
-        result_blocks = soup.find_all('div', class_='result') or soup.find_all('div', class_='web-result')
-        
-        for block in result_blocks[:8]:
-            try:
-                title_elem = block.find('a', class_='result__a')
-                if not title_elem:
-                    continue
-                    
-                title = title_elem.get_text(strip=True)
-                url = title_elem.get('href', '')
-                
-                # Обрабатываем URL DuckDuckGo
-                if url.startswith('//duckduckgo.com/l/?uddg='):
-                    match = re.search(r'uddg=([^&]+)', url)
-                    if match:
-                        url = unquote_plus(match.group(1))
-                
-                snippet_elem = block.find('a', class_='result__snippet') or block.find('div', class_='result__snippet')
-                snippet = snippet_elem.get_text(strip=True) if snippet_elem else "Описание недоступно"
-                
-                display_url = self.extract_display_url(url)
-                
-                if title and url and url.startswith('http'):
-                    results.append({
-                        'title': title,
-                        'url': url,
-                        'display_url': display_url,
-                        'snippet': snippet[:200] + '...' if len(snippet) > 200 else snippet,
-                        'highlighted_title': self.highlight_text(title, query),
-                        'highlighted_snippet': self.highlight_text(snippet, query)
-                    })
-                    
-            except Exception as e:
-                continue
-        
-        return results if results else self.get_fallback_websites(query)
-    
-    def search_images(self, query):
-        """Поиск изображений по новому алгоритму - анализ сайтов"""
-        try:
-            # Сначала получаем результаты веб-поиска
-            websites = self.search_websites(query)
-            images = []
-            
-            # Ключевые слова из запроса
+            results = []
             query_words = re.findall(r'\w+', query.lower())
             
-            for website in websites:
+            # Поиск по популярным сайтам
+            for site in self.popular_sites:
                 try:
-                    # Анализируем каждый сайт на наличие изображений
-                    site_images = self.extract_images_from_site(website['url'], query_words)
-                    images.extend(site_images)
+                    site_results = self.search_on_site(site, query, query_words)
+                    results.extend(site_results)
                     
-                    if len(images) >= 12:  # Ограничиваем количество изображений
+                    if len(results) >= 10:
                         break
                         
                 except Exception as e:
                     continue
             
-            # Если не нашли достаточно изображений, добавляем резервные
-            if len(images) < 4:
-                fallback_images = self.get_fallback_images(query)
-                for img in fallback_images:
-                    if not any(i['url'] == img['url'] for i in images):
-                        images.append(img)
+            # Если не нашли достаточно результатов, ищем в интернете
+            if len(results) < 5:
+                web_results = self.search_web_directly(query, query_words)
+                results.extend(web_results)
             
-            return images[:12]
+            return results[:12] if results else self.get_fallback_websites(query)
+                
+        except Exception as e:
+            print(f"Website search error: {e}")
+            return self.get_fallback_websites(query)
+    
+    def search_on_site(self, site_url, query, query_words):
+        """Поиск на конкретном сайте"""
+        try:
+            headers = {
+                'User-Agent': self.get_random_user_agent(),
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            }
+            
+            # Пытаемся найти страницу поиска на сайте
+            search_urls = [
+                f"{site_url}/search?q={quote_plus(query)}",
+                f"{site_url}/?s={quote_plus(query)}",
+                f"{site_url}/find?q={quote_plus(query)}"
+            ]
+            
+            for search_url in search_urls:
+                try:
+                    response = requests.get(search_url, headers=headers, timeout=8)
+                    if response.status_code == 200:
+                        return self.parse_site_results(response.text, site_url, query, query_words)
+                except:
+                    continue
+            
+            return []
+            
+        except Exception as e:
+            return []
+    
+    def parse_site_results(self, html, site_url, query, query_words):
+        """Парсинг результатов с сайта"""
+        soup = BeautifulSoup(html, 'html.parser')
+        results = []
+        
+        # Ищем ссылки на страницы
+        links = soup.find_all('a', href=True)
+        
+        for link in links[:15]:
+            try:
+                href = link.get('href', '')
+                title = link.get_text(strip=True)
+                
+                # Пропускаем пустые ссылки и ссылки без текста
+                if not href or not title or len(title) < 10:
+                    continue
+                
+                # Преобразуем относительные URL в абсолютные
+                if href.startswith('/'):
+                    href = urlparse(site_url).scheme + '://' + urlparse(site_url).netloc + href
+                elif not href.startswith('http'):
+                    continue
+                
+                # Проверяем релевантность по заголовку
+                title_lower = title.lower()
+                matches_query = any(word in title_lower for word in query_words if len(word) > 3)
+                
+                if matches_query:
+                    # Получаем описание страницы
+                    description = self.get_page_description(href)
+                    
+                    results.append({
+                        'title': title,
+                        'url': href,
+                        'display_url': urlparse(href).netloc,
+                        'snippet': description[:150] + '...' if len(description) > 150 else description,
+                        'highlighted_title': self.highlight_text(title, query),
+                        'highlighted_snippet': self.highlight_text(description, query)
+                    })
+                    
+                    if len(results) >= 5:
+                        break
+                        
+            except Exception as e:
+                continue
+        
+        return results
+    
+    def get_page_description(self, url):
+        """Получает описание страницы"""
+        try:
+            headers = {'User-Agent': self.get_random_user_agent()}
+            response = requests.get(url, headers=headers, timeout=5)
+            soup = BeautifulSoup(response.text, 'html.parser')
+            
+            # Ищем мета-описание
+            meta_desc = soup.find('meta', attrs={'name': 'description'})
+            if meta_desc and meta_desc.get('content'):
+                return meta_desc.get('content')
+            
+            # Ищем первый абзац
+            first_p = soup.find('p')
+            if first_p:
+                return first_p.get_text(strip=True)[:200]
+            
+            return "Описание недоступно"
+            
+        except:
+            return "Описание недоступно"
+    
+    def search_web_directly(self, query, query_words):
+        """Прямой поиск в интернете"""
+        results = []
+        
+        # Генерируем потенциальные URL на основе запроса
+        potential_urls = self.generate_potential_urls(query, query_words)
+        
+        for url in potential_urls[:10]:
+            try:
+                headers = {'User-Agent': self.get_random_user_agent()}
+                response = requests.get(url, headers=headers, timeout=6)
+                
+                if response.status_code == 200:
+                    soup = BeautifulSoup(response.text, 'html.parser')
+                    title = soup.find('title')
+                    
+                    if title:
+                        title_text = title.get_text(strip=True)
+                        title_lower = title_text.lower()
+                        
+                        # Проверяем релевантность
+                        if any(word in title_lower for word in query_words if len(word) > 3):
+                            description = self.get_page_description(url)
+                            
+                            results.append({
+                                'title': title_text,
+                                'url': url,
+                                'display_url': urlparse(url).netloc,
+                                'snippet': description[:150] + '...' if len(description) > 150 else description,
+                                'highlighted_title': self.highlight_text(title_text, query),
+                                'highlighted_snippet': self.highlight_text(description, query)
+                            })
+                            
+            except:
+                continue
+        
+        return results
+    
+    def generate_potential_urls(self, query, query_words):
+        """Генерирует потенциальные URL на основе запроса"""
+        domains = ['.com', '.org', '.net', '.ru', '.io']
+        protocols = ['https://', 'http://']
+        urls = []
+        
+        # Генерируем URL на основе ключевых слов
+        for word in query_words:
+            if len(word) > 4:
+                for domain in domains:
+                    for protocol in protocols:
+                        urls.append(f"{protocol}www.{word}{domain}")
+                        urls.append(f"{protocol}{word}{domain}")
+        
+        # Добавляем комбинации слов
+        if len(query_words) > 1:
+            combined = '-'.join(query_words[:2])
+            for domain in domains:
+                for protocol in protocols:
+                    urls.append(f"{protocol}www.{combined}{domain}")
+                    urls.append(f"{protocol}{combined}{domain}")
+        
+        return urls
+    
+    def search_images(self, query):
+        """Поиск изображений по новому алгоритму"""
+        try:
+            images = []
+            query_words = re.findall(r'\w+', query.lower())
+            
+            # Поиск на сайтах с изображениями
+            for site in self.image_sites:
+                try:
+                    site_images = self.search_images_on_site(site, query, query_words)
+                    images.extend(site_images)
+                    
+                    if len(images) >= 15:
+                        break
+                        
+                except Exception as e:
+                    continue
+            
+            # Поиск изображений на обычных сайтах
+            if len(images) < 8:
+                web_images = self.search_images_on_web(query, query_words)
+                images.extend(web_images)
+            
+            return images[:12] if images else self.get_fallback_images(query)
                 
         except Exception as e:
             print(f"Image search error: {e}")
             return self.get_fallback_images(query)
     
-    def extract_images_from_site(self, url, query_words):
-        """Извлекает изображения с сайта, соответствующие запросу"""
+    def search_images_on_site(self, site_url, query, query_words):
+        """Поиск изображений на конкретном сайте"""
         try:
-            headers = {
-                'User-Agent': self.get_random_user_agent(),
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-            }
+            headers = {'User-Agent': self.get_random_user_agent()}
             
-            response = requests.get(url, headers=headers, timeout=8)
-            soup = BeautifulSoup(response.text, 'html.parser')
+            # Пытаемся найти страницу поиска
+            search_urls = [
+                f"{site_url}/s?q={quote_plus(query)}",
+                f"{site_url}/search?q={quote_plus(query)}",
+                f"{site_url}/photos/{quote_plus(query)}"
+            ]
             
-            images = []
-            img_tags = soup.find_all('img')
-            
-            for img in img_tags:
+            for search_url in search_urls:
                 try:
-                    img_src = img.get('src') or img.get('data-src')
-                    if not img_src:
-                        continue
-                    
-                    # Преобразуем относительные URL в абсолютные
-                    if img_src.startswith('//'):
-                        img_src = 'https:' + img_src
-                    elif img_src.startswith('/'):
-                        img_src = urlparse(url).scheme + '://' + urlparse(url).netloc + img_src
-                    elif not img_src.startswith('http'):
-                        continue
-                    
-                    # Получаем информацию об изображении
-                    img_alt = img.get('alt', '').lower()
-                    img_title = img.get('title', '').lower()
-                    parent_text = self.get_surrounding_text(img).lower()
-                    
-                    # Проверяем соответствие запросу (слово в alt, title или окружающем тексте)
-                    matches_query = any(
-                        word in img_alt or 
-                        word in img_title or 
-                        word in parent_text 
-                        for word in query_words if len(word) > 3
-                    )
-                    
-                    if matches_query:
-                        # Получаем размеры изображения
-                        width = img.get('width')
-                        height = img.get('height')
-                        
-                        # Пропускаем маленькие изображения (иконки и т.д.)
-                        if width and height:
-                            if int(width) < 100 or int(height) < 100:
-                                continue
-                        
-                        images.append({
-                            'title': img_alt[:50] if img_alt else f"Изображение {len(images) + 1}",
-                            'url': img_src,
-                            'thumbnail': img_src,
-                            'source': urlparse(url).netloc
-                        })
-                        
-                        if len(images) >= 6:  # Ограничиваем количество с одного сайта
-                            break
-                            
-                except Exception as e:
+                    response = requests.get(search_url, headers=headers, timeout=8)
+                    if response.status_code == 200:
+                        return self.extract_images_from_page(response.text, site_url, query_words)
+                except:
                     continue
             
-            return images
+            return []
             
         except Exception as e:
             return []
     
-    def get_surrounding_text(self, img_tag):
-        """Получает текст вокруг изображения"""
+    def extract_images_from_page(self, html, site_url, query_words):
+        """Извлекает изображения со страницы"""
+        soup = BeautifulSoup(html, 'html.parser')
+        images = []
+        
+        img_tags = soup.find_all('img')
+        
+        for img in img_tags[:20]:
+            try:
+                img_src = img.get('src') or img.get('data-src')
+                if not img_src:
+                    continue
+                
+                # Преобразуем относительные URL
+                if img_src.startswith('//'):
+                    img_src = 'https:' + img_src
+                elif img_src.startswith('/'):
+                    img_src = urlparse(site_url).scheme + '://' + urlparse(site_url).netloc + img_src
+                elif not img_src.startswith('http'):
+                    continue
+                
+                # Получаем информацию об изображении
+                img_alt = img.get('alt', '').lower()
+                img_title = img.get('title', '').lower()
+                
+                # Проверяем релевантность
+                matches_query = any(
+                    word in img_alt or word in img_title
+                    for word in query_words if len(word) > 3
+                )
+                
+                if matches_query or len(images) < 3:
+                    # Проверяем размеры
+                    width = img.get('width', '0')
+                    height = img.get('height', '0')
+                    
+                    try:
+                        if int(width) < 100 and int(height) < 100:
+                            continue
+                    except:
+                        pass
+                    
+                    images.append({
+                        'title': img_alt[:50] if img_alt else f"Изображение {len(images) + 1}",
+                        'url': img_src,
+                        'thumbnail': img_src,
+                        'source': urlparse(site_url).netloc
+                    })
+                    
+            except Exception as e:
+                continue
+        
+        return images
+    
+    def search_images_on_web(self, query, query_words):
+        """Поиск изображений в интернете"""
+        images = []
+        
+        # Ищем сайты, которые могут содержать изображения
+        potential_sites = self.generate_image_sites(query_words)
+        
+        for site in potential_sites[:8]:
+            try:
+                site_images = self.extract_images_from_site_directly(site, query_words)
+                images.extend(site_images)
+                
+                if len(images) >= 10:
+                    break
+                    
+            except Exception as e:
+                continue
+        
+        return images
+    
+    def generate_image_sites(self, query_words):
+        """Генерирует сайты для поиска изображений"""
+        base_sites = [
+            "https://pinterest.com/search/pins/?q=",
+            "https://deviantart.com/search?q=",
+            "https://gettyimages.com/photos/",
+            "https://shutterstock.com/search/",
+            "https://istockphoto.com/search/2/image?phrase="
+        ]
+        
+        sites = []
+        query = '+'.join(query_words)
+        
+        for base in base_sites:
+            sites.append(base + query)
+        
+        return sites
+    
+    def extract_images_from_site_directly(self, url, query_words):
+        """Прямое извлечение изображений с сайта"""
         try:
-            # Текст из родительского элемента
-            parent = img_tag.parent
-            if parent:
-                # Удаляем сам тег img из текста
-                temp_parent = parent.copy()
-                for img in temp_parent.find_all('img'):
-                    img.decompose()
-                parent_text = temp_parent.get_text(strip=True)
-                if parent_text:
-                    return parent_text
+            headers = {'User-Agent': self.get_random_user_agent()}
+            response = requests.get(url, headers=headers, timeout=6)
             
-            # Текст из соседних элементов
-            previous_elements = []
-            next_elements = []
+            if response.status_code == 200:
+                return self.extract_images_from_page(response.text, url, query_words)
             
-            # 3 предыдущих элемента
-            prev = img_tag.previous_sibling
-            for _ in range(3):
-                if prev and hasattr(prev, 'get_text'):
-                    text = prev.get_text(strip=True)
-                    if text:
-                        previous_elements.append(text)
-                if prev:
-                    prev = prev.previous_sibling
-                else:
-                    break
+            return []
             
-            # 3 следующих элемента
-            nxt = img_tag.next_sibling
-            for _ in range(3):
-                if nxt and hasattr(nxt, 'get_text'):
-                    text = nxt.get_text(strip=True)
-                    if text:
-                        next_elements.append(text)
-                if nxt:
-                    nxt = nxt.next_sibling
-                else:
-                    break
-            
-            return ' '.join(previous_elements[::-1] + next_elements)
-            
-        except Exception as e:
-            return ""
+        except:
+            return []
     
     def search_videos(self, query):
-        """Поиск видео по новому алгоритму - анализ видеоплатформ"""
+        """Поиск видео по новому алгоритму"""
         try:
             videos = []
             query_words = re.findall(r'\w+', query.lower())
             
-            # Поиск на YouTube
-            youtube_videos = self.search_youtube_videos(query, query_words)
-            videos.extend(youtube_videos)
+            # Поиск на видео платформах
+            for site in self.video_sites:
+                try:
+                    site_videos = self.search_videos_on_site(site, query, query_words)
+                    videos.extend(site_videos)
+                    
+                    if len(videos) >= 9:
+                        break
+                        
+                except Exception as e:
+                    continue
             
-            # Поиск на VK Video
-            vk_videos = self.search_vk_videos(query, query_words)
-            videos.extend(vk_videos)
-            
-            # Поиск на Dailymotion
-            dailymotion_videos = self.search_dailymotion_videos(query, query_words)
-            videos.extend(dailymotion_videos)
-            
-            # Если не нашли достаточно видео, добавляем резервные
-            if len(videos) < 3:
-                fallback_videos = self.get_fallback_videos(query)
-                for video in fallback_videos:
-                    if not any(v['url'] == video['url'] for v in videos):
-                        videos.append(video)
-            
-            return videos[:9]
+            return videos[:9] if videos else self.get_fallback_videos(query)
                 
         except Exception as e:
             print(f"Video search error: {e}")
             return self.get_fallback_videos(query)
     
-    def search_youtube_videos(self, query, query_words):
-        """Поиск видео на YouTube"""
+    def search_videos_on_site(self, site_url, query, query_words):
+        """Поиск видео на конкретной платформе"""
         try:
-            # Используем поиск YouTube через DuckDuckGo
-            search_url = f"https://duckduckgo.com/html/?q={quote_plus(query + ' site:youtube.com')}"
-            headers = {
-                'User-Agent': self.get_random_user_agent(),
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-            }
+            headers = {'User-Agent': self.get_random_user_agent()}
             
-            response = requests.get(search_url, headers=headers, timeout=10)
-            soup = BeautifulSoup(response.text, 'html.parser')
+            # Генерируем URL для поиска видео
+            search_urls = [
+                f"{site_url}/results?search_query={quote_plus(query)}",
+                f"{site_url}/search?q={quote_plus(query)}",
+                f"{site_url}/videos/search/{quote_plus(query)}"
+            ]
             
-            videos = []
-            results = soup.find_all('div', class_='result')[:6]
-            
-            for result in results:
+            for search_url in search_urls:
                 try:
-                    title_elem = result.find('a', class_='result__a')
-                    if not title_elem:
-                        continue
-                    
-                    title = title_elem.get_text(strip=True)
-                    url = title_elem.get('href', '')
-                    
-                    # Обрабатываем URL DuckDuckGo
-                    if url.startswith('//duckduckgo.com/l/?uddg='):
-                        match = re.search(r'uddg=([^&]+)', url)
-                        if match:
-                            url = unquote_plus(match.group(1))
-                    
-                    # Проверяем, что это YouTube видео и соответствует запросу
-                    if 'youtube.com/watch' in url and any(word in title.lower() for word in query_words):
-                        # Получаем ID видео для миниатюры
-                        video_id_match = re.search(r'v=([^&]+)', url)
-                        if video_id_match:
-                            video_id = video_id_match.group(1)
-                            thumbnail = f"https://img.youtube.com/vi/{video_id}/hqdefault.jpg"
-                            
-                            videos.append({
-                                'title': title,
-                                'url': url,
-                                'thumbnail': thumbnail,
-                                'channel': 'YouTube',
-                                'duration': 'Видео'
-                            })
-                            
-                except Exception as e:
+                    response = requests.get(search_url, headers=headers, timeout=8)
+                    if response.status_code == 200:
+                        return self.extract_videos_from_page(response.text, site_url, query_words)
+                except:
                     continue
             
-            return videos
+            return []
             
         except Exception as e:
             return []
     
-    def search_vk_videos(self, query, query_words):
-        """Поиск видео на VK"""
-        try:
-            search_url = f"https://duckduckgo.com/html/?q={quote_plus(query + ' site:vk.com/video')}"
-            headers = {
-                'User-Agent': self.get_random_user_agent(),
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-            }
-            
-            response = requests.get(search_url, headers=headers, timeout=10)
-            soup = BeautifulSoup(response.text, 'html.parser')
-            
-            videos = []
-            results = soup.find_all('div', class_='result')[:4]
-            
-            for result in results:
-                try:
-                    title_elem = result.find('a', class_='result__a')
-                    if not title_elem:
+    def extract_videos_from_page(self, html, site_url, query_words):
+        """Извлекает видео со страницы"""
+        soup = BeautifulSoup(html, 'html.parser')
+        videos = []
+        
+        # Ищем ссылки на видео
+        video_links = soup.find_all('a', href=True)
+        
+        for link in video_links[:15]:
+            try:
+                href = link.get('href', '')
+                title = link.get_text(strip=True)
+                
+                if not href or not title or len(title) < 10:
+                    continue
+                
+                # Проверяем, что это ссылка на видео
+                is_video_link = any(pattern in href for pattern in ['/watch', '/video', '/v/'])
+                
+                if is_video_link:
+                    # Преобразуем относительные URL
+                    if href.startswith('/'):
+                        href = urlparse(site_url).scheme + '://' + urlparse(site_url).netloc + href
+                    elif not href.startswith('http'):
                         continue
                     
-                    title = title_elem.get_text(strip=True)
-                    url = title_elem.get('href', '')
+                    # Проверяем релевантность по названию
+                    title_lower = title.lower()
+                    matches_query = any(word in title_lower for word in query_words if len(word) > 3)
                     
-                    # Обрабатываем URL DuckDuckGo
-                    if url.startswith('//duckduckgo.com/l/?uddg='):
-                        match = re.search(r'uddg=([^&]+)', url)
-                        if match:
-                            url = unquote_plus(match.group(1))
-                    
-                    # Проверяем, что это VK видео и соответствует запросу
-                    if 'vk.com/video' in url and any(word in title.lower() for word in query_words):
+                    if matches_query:
+                        # Получаем миниатюру
+                        thumbnail = self.get_video_thumbnail(href, site_url)
+                        
                         videos.append({
                             'title': title,
-                            'url': url,
-                            'thumbnail': 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjE4MCIgdmlld0JveD0iMCAwIDMwMCAxODAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIzMDAiIGhlaWdodD0iMTgwIiBmaWxsPSIjRjNGNEY2Ii8+CjxwYXRoIGQ9Ik0xMjAgODBMMTYwIDEwMEwxMjAgMTIwVjgwWiIgZmlsbD0iIzlDQTNBRiIvPgo8L3N2Zz4=',
-                            'channel': 'VK Видео',
+                            'url': href,
+                            'thumbnail': thumbnail,
+                            'channel': urlparse(site_url).netloc,
                             'duration': 'Видео'
                         })
                         
-                except Exception as e:
-                    continue
-            
-            return videos
-            
-        except Exception as e:
-            return []
+                        if len(videos) >= 6:
+                            break
+                            
+            except Exception as e:
+                continue
+        
+        return videos
     
-    def search_dailymotion_videos(self, query, query_words):
-        """Поиск видео на Dailymotion"""
+    def get_video_thumbnail(self, video_url, site_url):
+        """Получает миниатюру видео"""
         try:
-            search_url = f"https://duckduckgo.com/html/?q={quote_plus(query + ' site:dailymotion.com/video')}"
-            headers = {
-                'User-Agent': self.get_random_user_agent(),
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-            }
+            # Для YouTube извлекаем ID видео
+            if 'youtube.com' in site_url or 'youtu.be' in site_url:
+                video_id_match = re.search(r'(?:v=|/)([0-9A-Za-z_-]{11})', video_url)
+                if video_id_match:
+                    video_id = video_id_match.group(1)
+                    return f"https://img.youtube.com/vi/{video_id}/hqdefault.jpg"
             
-            response = requests.get(search_url, headers=headers, timeout=10)
-            soup = BeautifulSoup(response.text, 'html.parser')
+            # Для других платформ используем заглушку
+            return 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjE4MCIgdmlld0JveD0iMCAwIDMwMCAxODAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIzMDAiIGhlaWdodD0iMTgwIiBmaWxsPSIjRjNGNEY2Ii8+CjxwYXRoIGQ9Ik0xMjAgODBMMTYwIDEwMEwxMjAgMTIwVjgwWiIgZmlsbD0iIzlDQTNBRiIvPgo8L3N2Zz4='
             
-            videos = []
-            results = soup.find_all('div', class_='result')[:3]
-            
-            for result in results:
-                try:
-                    title_elem = result.find('a', class_='result__a')
-                    if not title_elem:
-                        continue
-                    
-                    title = title_elem.get_text(strip=True)
-                    url = title_elem.get('href', '')
-                    
-                    # Обрабатываем URL DuckDuckGo
-                    if url.startswith('//duckduckgo.com/l/?uddg='):
-                        match = re.search(r'uddg=([^&]+)', url)
-                        if match:
-                            url = unquote_plus(match.group(1))
-                    
-                    # Проверяем, что это Dailymotion видео и соответствует запросу
-                    if 'dailymotion.com/video' in url and any(word in title.lower() for word in query_words):
-                        videos.append({
-                            'title': title,
-                            'url': url,
-                            'thumbnail': 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjE4MCIgdmlld0JveD0iMCAwIDMwMCAxODAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIzMDAiIGhlaWdodD0iMTgwIiBmaWxsPSIjRjNGNEY2Ii8+CjxwYXRoIGQ9Ik0xMjAgODBMMTYwIDEwMEwxMjAgMTIwVjgwWiIgZmlsbD0iIzlDQTNBRiIvPgo8L3N2Zz4=',
-                            'channel': 'Dailymotion',
-                            'duration': 'Видео'
-                        })
-                        
-                except Exception as e:
-                    continue
-            
-            return videos
-            
-        except Exception as e:
-            return []
+        except:
+            return 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjE4MCIgdmlld0JveD0iMCAwIDMwMCAxODAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIzMDAiIGhlaWdodD0iMTgwIiBmaWxsPSIjRjNGNEY2Ii8+CjxwYXRoIGQ9Ik0xMjAgODBMMTYwIDEwMEwxMjAgMTIwVjgwWiIgZmlsbD0iIzlDQTNBRiIvPgo8L3N2Zz4='
     
     def get_fallback_images(self, query):
         """Резервные изображения"""
-        image_base = {
-            'python': [
-                {
-                    'title': 'Python программирование',
-                    'url': 'https://images.unsplash.com/photo-1526379879527-8559ecfcaec0',
-                    'thumbnail': 'https://images.unsplash.com/photo-1526379879527-8559ecfcaec0?w=300&h=200&fit=crop',
-                    'source': 'unsplash.com'
-                }
-            ],
-            'космос': [
-                {
-                    'title': 'Космическое пространство',
-                    'url': 'https://images.unsplash.com/photo-1446776653964-20c1d3a81b06',
-                    'thumbnail': 'https://images.unsplash.com/photo-1446776653964-20c1d3a81b06?w=300&h=200&fit=crop',
-                    'source': 'unsplash.com'
-                }
-            ],
-            'природа': [
-                {
-                    'title': 'Горный пейзаж',
-                    'url': 'https://images.unsplash.com/photo-1506905925346-21bda4d32df4',
-                    'thumbnail': 'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=300&h=200&fit=crop',
-                    'source': 'unsplash.com'
-                }
-            ],
-            'технологии': [
-                {
-                    'title': 'Современные технологии',
-                    'url': 'https://images.unsplash.com/photo-1518709268805-4e9042af2176',
-                    'thumbnail': 'https://images.unsplash.com/photo-1518709268805-4e9042af2176?w=300&h=200&fit=crop',
-                    'source': 'unsplash.com'
-                }
-            ]
-        }
+        fallback_images = [
+            {
+                'title': f'Изображение по запросу: {query}',
+                'url': f'https://source.unsplash.com/featured/800x600/?{quote_plus(query)}',
+                'thumbnail': f'https://source.unsplash.com/featured/300x200/?{quote_plus(query)}',
+                'source': 'unsplash.com'
+            },
+            {
+                'title': f'Фото: {query}',
+                'url': f'https://source.unsplash.com/featured/800x600/?{quote_plus(query.split()[0])}',
+                'thumbnail': f'https://source.unsplash.com/featured/300x200/?{quote_plus(query.split()[0])}',
+                'source': 'unsplash.com'
+            }
+        ]
         
-        images = []
-        query_lower = query.lower()
-        
-        for category, image_list in image_base.items():
-            if query_lower in category or any(word in category for word in query_lower.split()):
-                for image in image_list:
-                    if not any(img['url'] == image['url'] for img in images):
-                        images.append(image)
-        
-        return images[:8]
+        return fallback_images
     
     def get_fallback_videos(self, query):
         """Резервные видео"""
@@ -1266,8 +1327,8 @@ class AriOSRealSearch:
         return [
             {
                 'title': f'Результаты поиска: {query}',
-                'url': f'https://duckduckgo.com/?q={quote_plus(query)}',
-                'display_url': 'duckduckgo.com',
+                'url': f'https://www.google.com/search?q={quote_plus(query)}',
+                'display_url': 'google.com',
                 'snippet': f'Нажмите чтобы увидеть больше результатов по запросу "{query}"',
                 'highlighted_title': self.highlight_text(f'Результаты поиска: {query}', query),
                 'highlighted_snippet': self.highlight_text(f'Нажмите чтобы увидеть больше результатов', query)
@@ -1427,7 +1488,42 @@ def search():
                                    images_count=0,
                                    videos_count=0)
 
-# Остальные маршруты остаются без изменений...
+@app.route('/health')
+def health():
+    """Health check endpoint"""
+    return jsonify({
+        'status': 'healthy',
+        'timestamp': time.time(),
+        'uptime': int(time.time() - app_status['start_time']),
+        'total_searches': app_status['total_searches']
+    })
+
+@app.route('/ping')
+def ping():
+    """Simple ping endpoint"""
+    app_status['last_self_ping'] = time.time()
+    app_status['is_active'] = True
+    return 'pong'
+
+@app.route('/status')
+def status():
+    """Status page"""
+    last_ping = "никогда"
+    if app_status['last_self_ping']:
+        last_ping = f"{int(time.time() - app_status['last_self_ping'])} сек назад"
+    
+    uptime = int(time.time() - app_status['start_time'])
+    uptime_str = f"{uptime // 3600}ч {(uptime % 3600) // 60}м {uptime % 60}с"
+    
+    return jsonify({
+        'status': 'active' if app_status['is_active'] else 'inactive',
+        'last_self_ping': app_status['last_self_ping'],
+        'last_ping_human': last_ping,
+        'total_searches': app_status['total_searches'],
+        'start_time': app_status['start_time'],
+        'uptime': uptime,
+        'uptime_human': uptime_str
+    })
 
 # Запускаем само-пинг при старте приложения
 start_background_scheduler()
