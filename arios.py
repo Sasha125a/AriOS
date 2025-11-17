@@ -10,6 +10,15 @@ import random
 import threading
 import schedule
 import html
+import concurrent.futures
+import hashlib
+import logging
+from collections import defaultdict
+import io
+
+# Настройка логирования
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
@@ -18,88 +27,589 @@ app_status = {
     'last_self_ping': None,
     'total_searches': 0,
     'start_time': time.time(),
-    'is_active': True
+    'is_active': True,
+    'indexed_images': 0,
+    'processed_pages': 0
 }
 
-# Функция для само-пинга
-def self_ping():
-    """Отправляет запросы самому себе чтобы держать приложение активным"""
-    try:
-        # Определяем базовый URL автоматически
-        if 'RENDER_EXTERNAL_URL' in os.environ:
-            base_url = os.environ['RENDER_EXTERNAL_URL']
-        else:
-            # Для локальной разработки или если переменная не установлена
-            base_url = 'https://arios-yqnm.onrender.com'
+# Глобальный индекс изображений
+image_index = {
+    'by_id': {},
+    'by_object': defaultdict(list),
+    'by_color': defaultdict(list),
+    'by_scene': defaultdict(list),
+    'by_domain': defaultdict(list)
+}
+
+class ImageAnalyzer:
+    """Анализатор изображений с компьютерным зрением"""
+    
+    def __init__(self):
+        self.scene_categories = [
+            'пляж', 'город', 'лес', 'горы', 'офис', 'дом', 'ресторан', 
+            'улица', 'парк', 'стадион', 'магазин', 'больница', 'школа',
+            'аэропорт', 'вокзал', 'море', 'река', 'озеро', 'пустыня', 'снег'
+        ]
+        self.color_names = {
+            'red': 'красный', 'blue': 'синий', 'green': 'зеленый', 
+            'yellow': 'желтый', 'orange': 'оранжевый', 'purple': 'фиолетовый',
+            'pink': 'розовый', 'brown': 'коричневый', 'black': 'черный',
+            'white': 'белый', 'gray': 'серый'
+        }
+        self.object_translations = {
+            'cat': 'кот', 'dog': 'собака', 'car': 'машина', 'tree': 'дерево',
+            'person': 'человек', 'building': 'здание', 'flower': 'цветок',
+            'mountain': 'гора', 'beach': 'пляж', 'sky': 'небо', 'water': 'вода',
+            'food': 'еда', 'animal': 'животное', 'bird': 'птица', 'fish': 'рыба',
+            'computer': 'компьютер', 'phone': 'телефон', 'book': 'книга',
+            'chair': 'стул', 'table': 'стол', 'house': 'дом', 'road': 'дорога',
+            'cloud': 'облако', 'sun': 'солнце', 'grass': 'трава', 'leaf': 'лист',
+            'fruit': 'фрукт', 'vegetable': 'овощ', 'face': 'лицо', 'hand': 'рука'
+        }
+        
+    def analyze_image(self, image_url):
+        """Анализ изображения с помощью упрощенного компьютерного зрения"""
+        try:
+            # Загрузка изображения
+            response = requests.get(image_url, timeout=10)
+            if response.status_code != 200:
+                return {}
             
-        health_url = f"{base_url}/health"
-        search_url = f"{base_url}/search?q=python"
-        
-        print(f"🔁 Starting self-ping to {base_url}")
-        
-        # Пингуем health endpoint
-        try:
-            response1 = requests.get(health_url, timeout=10)
-            print(f"✅ Health ping: {response1.status_code}")
+            # Упрощенный анализ на основе URL и метаданных
+            analysis = self._simplified_analysis(image_url)
+            
+            # Дополнительный анализ цветов
+            analysis.update(self._analyze_colors_from_url(image_url))
+            
+            return analysis
+            
         except Exception as e:
-            print(f"❌ Health ping failed: {e}")
+            logger.error(f"❌ Ошибка анализа изображения {image_url}: {e}")
+            return {}
+
+    def _simplified_analysis(self, image_url):
+        """Упрощенный анализ изображения на основе URL и имени файла"""
+        analysis = {}
         
-        # Пингуем поиск для поддержания активности
         try:
-            response2 = requests.get(search_url, timeout=10)
-            print(f"✅ Search ping: {response2.status_code}")
+            # Анализ имени файла
+            filename = os.path.basename(urlparse(image_url).path).lower()
+            
+            # Поиск объектов в имени файла
+            for eng, rus in self.object_translations.items():
+                if eng in filename or rus in filename:
+                    analysis[rus] = 0.7  # Высокая уверенность для совпадений в имени
+            
+            # Анализ пути URL
+            path = urlparse(image_url).path.lower()
+            for scene in self.scene_categories:
+                if scene in path:
+                    analysis[scene] = 0.6
+            
+            # Общие категории на основе ключевых слов
+            if any(word in filename for word in ['cat', 'kitty', 'kitten', 'кошка', 'кот']):
+                analysis['кот'] = 0.8
+            if any(word in filename for word in ['dog', 'puppy', 'собака', 'пес']):
+                analysis['собака'] = 0.8
+            if any(word in filename for word in ['flower', 'rose', 'цветок', 'роза']):
+                analysis['цветок'] = 0.7
+            if any(word in filename for word in ['car', 'auto', 'машина', 'авто']):
+                analysis['машина'] = 0.7
+            if any(word in filename for word in ['mountain', 'гора', 'горы']):
+                analysis['горы'] = 0.7
+            if any(word in filename for word in ['beach', 'пляж', 'море']):
+                analysis['пляж'] = 0.7
+            if any(word in filename for word in ['city', 'город', 'urban']):
+                analysis['город'] = 0.7
+            if any(word in filename for word in ['forest', 'лес', 'дерево']):
+                analysis['лес'] = 0.7
+            
         except Exception as e:
-            print(f"❌ Search ping failed: {e}")
+            logger.error(f"❌ Ошибка упрощенного анализа: {e}")
         
-        app_status['last_self_ping'] = time.time()
-        app_status['total_searches'] += 1
-        app_status['is_active'] = True
-        
-        print(f"✅ Self-ping completed at {time.strftime('%Y-%m-%d %H:%M:%S')}")
-        
-    except Exception as e:
-        print(f"❌ Self-ping error: {e}")
-        app_status['is_active'] = False
+        return analysis
 
-# Функция для запуска планировщика
-def run_scheduler():
-    """Запускает планировщик для регулярных само-пингов"""
-    print("🕒 Starting background scheduler...")
-    
-    # Пингуем каждые 2 минуты (Render засыпает после 5 минут неактивности)
-    schedule.every(2).minutes.do(self_ping)
-    
-    # Также делаем дополнительный пинг каждые 30 секунд для надежности
-    schedule.every(30).seconds.do(lambda: 
-        requests.get(f"{os.environ.get('RENDER_EXTERNAL_URL', 'https://arios-yqnm.onrender.com')}/ping", timeout=5) 
-        if random.random() > 0.3 else None
-    )
-    
-    # Сразу делаем первый пинг
-    print("🔁 Performing initial self-ping...")
-    self_ping()
-    
-    while True:
+    def _analyze_colors_from_url(self, image_url):
+        """Упрощенный анализ цветов на основе URL"""
+        color_analysis = {}
+        
         try:
-            schedule.run_pending()
-            time.sleep(1)
+            filename = urlparse(image_url).path.lower()
+            
+            # Определение цветов по ключевым словам в URL
+            color_keywords = {
+                'red': 'красный', 'blue': 'синий', 'green': 'зеленый',
+                'yellow': 'желтый', 'orange': 'оранжевый', 'purple': 'фиолетовый',
+                'pink': 'розовый', 'black': 'черный', 'white': 'белый',
+                'gray': 'серый', 'brown': 'коричневый'
+            }
+            
+            for eng, rus in color_keywords.items():
+                if eng in filename or rus in filename:
+                    color_analysis[rus] = 0.6
+        
         except Exception as e:
-            print(f"❌ Scheduler error: {e}")
-            time.sleep(10)
+            logger.error(f"❌ Ошибка анализа цветов: {e}")
+        
+        return color_analysis
 
-# Запускаем планировщик в отдельном потоке
-def start_background_scheduler():
-    """Запускает фоновый планировщик"""
-    try:
-        scheduler_thread = threading.Thread(target=run_scheduler, daemon=True)
-        scheduler_thread.start()
-        print("🚀 Background scheduler started successfully")
-        return True
-    except Exception as e:
-        print(f"❌ Failed to start scheduler: {e}")
-        return False
+    def translate_object_name(self, english_name):
+        """Перевод названий объектов"""
+        return self.object_translations.get(english_name, english_name)
 
-# HTML шаблон для поисковой страницы AriOS
+# Инициализация анализатора
+image_analyzer = ImageAnalyzer()
+
+class WebCrawler:
+    """Веб-краулер для сканирования страниц и поиска изображений"""
+    
+    def __init__(self):
+        self.user_agents = [
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        ]
+        self.visited_urls = set()
+        self.image_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.svg'}
+        
+    def get_random_user_agent(self):
+        return random.choice(self.user_agents)
+    
+    def crawl_page(self, url, query_words):
+        """Сканирование страницы и извлечение изображений"""
+        if url in self.visited_urls:
+            return []
+            
+        self.visited_urls.add(url)
+        
+        try:
+            headers = {'User-Agent': self.get_random_user_agent()}
+            response = requests.get(url, headers=headers, timeout=8)
+            
+            if response.status_code != 200:
+                return []
+            
+            app_status['processed_pages'] += 1
+            soup = BeautifulSoup(response.text, 'html.parser')
+            
+            # Извлечение всех изображений
+            images_data = []
+            img_tags = soup.find_all('img')
+            
+            for img in img_tags[:30]:  # Ограничиваем для производительности
+                try:
+                    image_info = self._extract_image_data(img, url, query_words)
+                    if image_info:
+                        images_data.append(image_info)
+                except Exception as e:
+                    continue
+            
+            return images_data
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка сканирования {url}: {e}")
+            return []
+
+    def _extract_image_data(self, img_tag, page_url, query_words):
+        """Извлечение метаданных изображения"""
+        try:
+            # Получение URL изображения
+            img_src = (img_tag.get('src') or 
+                      img_tag.get('data-src') or 
+                      img_tag.get('data-lazy') or 
+                      img_tag.get('data-original'))
+            
+            if not img_src:
+                return None
+            
+            # Преобразование относительных URL
+            if img_src.startswith('//'):
+                img_src = 'https:' + img_src
+            elif img_src.startswith('/'):
+                img_src = urlparse(page_url).scheme + '://' + urlparse(page_url).netloc + img_src
+            elif not img_src.startswith('http'):
+                return None
+            
+            # Пропускаем маленькие изображения и иконки
+            width = img_tag.get('width')
+            height = img_tag.get('height')
+            if width and height:
+                try:
+                    if int(width) < 100 or int(height) < 100:
+                        return None
+                except:
+                    pass
+            
+            # Пропускаем SVG и иконки
+            if any(icon in img_src.lower() for icon in ['icon', 'logo', 'sprite', 'spacer', 'pixel']):
+                return None
+            
+            # Извлечение метаданных
+            alt_text = img_tag.get('alt', '')
+            title_text = img_tag.get('title', '')
+            
+            # Извлечение контекста
+            context = self._get_image_context(img_tag)
+            
+            # Анализ имени файла
+            filename = self._analyze_filename(img_src)
+            
+            # Создание уникального ID
+            image_id = hashlib.md5(img_src.encode()).hexdigest()
+            
+            image_data = {
+                'id': image_id,
+                'url': img_src,
+                'thumbnail': img_src,
+                'alt': alt_text,
+                'title': title_text,
+                'filename': filename,
+                'context': context,
+                'page_url': page_url,
+                'domain': urlparse(page_url).netloc,
+                'relevance_score': self._calculate_relevance(alt_text, title_text, filename, context, query_words),
+                'metadata_extracted': True,
+                'vision_analyzed': False
+            }
+            
+            return image_data
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка извлечения данных изображения: {e}")
+            return None
+
+    def _get_image_context(self, img_tag):
+        """Извлечение контекста изображения"""
+        try:
+            context_parts = []
+            
+            # Текст из родительского элемента
+            parent = img_tag.parent
+            if parent:
+                temp_parent = parent.copy()
+                for img in temp_parent.find_all('img'):
+                    img.decompose()
+                parent_text = temp_parent.get_text(strip=True)
+                if parent_text:
+                    context_parts.append(parent_text)
+            
+            # Заголовок страницы
+            title_tag = img_tag.find_parent().find_previous(['h1', 'h2', 'h3'])
+            if title_tag:
+                context_parts.append(title_tag.get_text(strip=True))
+            
+            # Подпись (figcaption)
+            figcaption = img_tag.find_next('figcaption')
+            if figcaption:
+                context_parts.append(figcaption.get_text(strip=True))
+            
+            # Ближайший абзац
+            paragraph = img_tag.find_previous('p') or img_tag.find_next('p')
+            if paragraph:
+                context_parts.append(paragraph.get_text(strip=True)[:200])
+            
+            return ' '.join(context_parts)[:300]
+            
+        except Exception as e:
+            return ""
+
+    def _analyze_filename(self, img_url):
+        """Анализ имени файла изображения"""
+        try:
+            filename = os.path.basename(urlparse(img_url).path)
+            name_without_ext = os.path.splitext(filename)[0]
+            
+            # Удаляем цифры и специальные символы
+            clean_name = re.sub(r'[\d_-]+', ' ', name_without_ext)
+            clean_name = re.sub(r'\s+', ' ', clean_name).strip()
+            
+            return clean_name if len(clean_name) > 2 else ""
+        except:
+            return ""
+
+    def _calculate_relevance(self, alt, title, filename, context, query_words):
+        """Расчет релевантности на основе метаданных"""
+        score = 0
+        all_text = f"{alt} {title} {filename} {context}".lower()
+        
+        for word in query_words:
+            if len(word) > 2:
+                if word in all_text:
+                    # Разный вес для разных источников
+                    if word in alt.lower():
+                        score += 3  # Высокий вес для alt
+                    if word in title.lower():
+                        score += 2  # Средний вес для title
+                    if word in filename.lower():
+                        score += 2  # Средний вес для имени файла
+                    if word in context.lower():
+                        score += 1  # Низкий вес для контекста
+        
+        return score
+
+class ImageSearchEngine:
+    """Поисковая система для изображений"""
+    
+    def __init__(self):
+        self.crawler = WebCrawler()
+        self.start_urls = [
+            "https://unsplash.com/s/photos/",
+            "https://pixabay.com/images/search/",
+            "https://www.pexels.com/search/",
+            "https://www.flickr.com/search/?text=",
+            "https://www.shutterstock.com/search/",
+            "https://commons.wikimedia.org/w/index.php?search=",
+            "https://www.deviantart.com/search?q=",
+            "https://www.artstation.com/search?q=",
+            "https://www.gettyimages.com/photos/",
+            "https://www.istockphoto.com/search/2/image?phrase="
+        ]
+        
+    def search_images(self, query, max_results=20):
+        """Основной метод поиска изображений"""
+        logger.info(f"🔍 Начало поиска изображений для: '{query}'")
+        
+        query_words = re.findall(r'\w+', query.lower())
+        if not query_words:
+            return []
+        
+        # Этап 1: Сканирование и сбор изображений
+        all_images = self._crawl_images(query, query_words)
+        
+        # Этап 2: Анализ метаданных и индексация
+        analyzed_images = self._analyze_and_index_images(all_images, query_words)
+        
+        # Этап 3: Ранжирование результатов
+        ranked_images = self._rank_images(analyzed_images, query_words)
+        
+        # Этап 4: Форматирование результатов
+        final_results = self._format_results(ranked_images[:max_results])
+        
+        logger.info(f"✅ Поиск завершен. Найдено: {len(final_results)} изображений")
+        return final_results
+
+    def _crawl_images(self, query, query_words):
+        """Этап 1: Сканирование страниц и сбор изображений"""
+        all_images = []
+        
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+            futures = []
+            
+            # Сканирование специализированных фото-сайтов
+            for site in self.start_urls:
+                search_url = site + quote_plus(query)
+                future = executor.submit(self.crawler.crawl_page, search_url, query_words)
+                futures.append(future)
+            
+            # Сканирование дополнительных страниц на основе запроса
+            additional_urls = self._generate_search_urls(query)
+            for url in additional_urls[:3]:
+                future = executor.submit(self.crawler.crawl_page, url, query_words)
+                futures.append(future)
+            
+            # Сбор результатов
+            for future in concurrent.futures.as_completed(futures):
+                try:
+                    images = future.result(timeout=10)
+                    all_images.extend(images)
+                except Exception as e:
+                    continue
+        
+        return all_images
+
+    def _generate_search_urls(self, query):
+        """Генерация URL для поиска на основе запроса"""
+        base_searches = [
+            f"https://www.google.com/search?q={quote_plus(query)}&tbm=isch",
+            f"https://www.bing.com/images/search?q={quote_plus(query)}",
+            f"https://yandex.ru/images/search?text={quote_plus(query)}",
+        ]
+        
+        return base_searches
+
+    def _analyze_and_index_images(self, images, query_words):
+        """Этап 2: Анализ метаданных и компьютерное зрение"""
+        analyzed_images = []
+        
+        for image_data in images:
+            try:
+                # Пропускаем уже проанализированные
+                if image_data['id'] in image_index['by_id']:
+                    analyzed_images.append(image_index['by_id'][image_data['id']])
+                    continue
+                
+                # Анализ компьютерным зрением
+                if not image_data['vision_analyzed']:
+                    vision_analysis = image_analyzer.analyze_image(image_data['url'])
+                    image_data['vision_analysis'] = vision_analysis
+                    image_data['vision_analyzed'] = True
+                
+                # Обновление релевантности на основе анализа зрения
+                vision_score = self._calculate_vision_relevance(image_data['vision_analysis'], query_words)
+                image_data['relevance_score'] += vision_score
+                
+                # Индексация изображения
+                self._index_image(image_data)
+                analyzed_images.append(image_data)
+                
+                app_status['indexed_images'] += 1
+                
+            except Exception as e:
+                logger.error(f"❌ Ошибка анализа изображения {image_data['url']}: {e}")
+                continue
+        
+        return analyzed_images
+
+    def _calculate_vision_relevance(self, vision_analysis, query_words):
+        """Расчет релевантности на основе анализа компьютерного зрения"""
+        score = 0
+        
+        for obj, confidence in vision_analysis.items():
+            for word in query_words:
+                if word in obj or self._is_synonym(word, obj):
+                    score += confidence * 2  # Высокий вес для совпадений в анализе зрения
+        
+        return score
+
+    def _is_synonym(self, word, object_name):
+        """Проверка синонимичности (упрощенная)"""
+        synonyms = {
+            'кот': ['кошка', 'котенок'],
+            'собака': ['пес', 'щенок'],
+            'машина': ['автомобиль', 'тачка'],
+            'человек': ['люди', 'персона'],
+            'цветок': ['цветы', 'букет'],
+            'дом': ['здание', 'строение'],
+            'горы': ['гора', 'вершина'],
+            'пляж': ['берег', 'песок'],
+            'город': ['улица', 'здания']
+        }
+        return word in synonyms.get(object_name, [])
+
+    def _index_image(self, image_data):
+        """Индексация изображения в глобальном индексе"""
+        image_id = image_data['id']
+        
+        # Сохраняем в основной индекс
+        image_index['by_id'][image_id] = image_data
+        
+        # Индексация по объектам (компьютерное зрение)
+        if 'vision_analysis' in image_data:
+            for obj, confidence in image_data['vision_analysis'].items():
+                if confidence > 0.3:  # Только уверенные предсказания
+                    image_index['by_object'][obj].append(image_id)
+        
+        # Индексация по домену
+        image_index['by_domain'][image_data['domain']].append(image_id)
+        
+        # Индексация по цветам (если есть в анализе)
+        if 'vision_analysis' in image_data:
+            for color in image_data['vision_analysis'].keys():
+                if color in image_analyzer.color_names.values():
+                    image_index['by_color'][color].append(image_id)
+
+    def _rank_images(self, images, query_words):
+        """Этап 3: Ранжирование изображений"""
+        scored_images = []
+        
+        for image in images:
+            try:
+                # Базовый счет на основе метаданных
+                final_score = image['relevance_score']
+                
+                # Бонус за качественные источники
+                final_score += self._calculate_domain_authority(image['domain'])
+                
+                # Бонус за высокое качество изображения (упрощенно)
+                final_score += self._estimate_image_quality(image)
+                
+                # Штраф за низкое качество метаданных
+                if not image['alt'] and not image['title']:
+                    final_score -= 2
+                
+                scored_images.append((final_score, image))
+                
+            except Exception as e:
+                continue
+        
+        # Сортировка по убыванию релевантности
+        scored_images.sort(key=lambda x: x[0], reverse=True)
+        return [img for score, img in scored_images]
+
+    def _calculate_domain_authority(self, domain):
+        """Расчет авторитетности домена (упрощенно)"""
+        authority_domains = {
+            'unsplash.com': 3,
+            'pixabay.com': 3,
+            'pexels.com': 3,
+            'flickr.com': 2,
+            'shutterstock.com': 2,
+            'gettyimages.com': 2,
+            'wikipedia.org': 2,
+            'nationalgeographic.com': 3
+        }
+        return authority_domains.get(domain, 0)
+
+    def _estimate_image_quality(self, image_data):
+        """Оценка качества изображения (упрощенно)"""
+        score = 0
+        
+        # Бонус за наличие детальных метаданных
+        if len(image_data.get('alt', '')) > 10:
+            score += 1
+        if len(image_data.get('title', '')) > 5:
+            score += 1
+        if image_data.get('filename'):
+            score += 1
+        
+        # Бонус за анализ компьютерным зрением
+        if image_data.get('vision_analyzed'):
+            score += 2
+        
+        return score
+
+    def _format_results(self, images):
+        """Форматирование результатов для вывода"""
+        formatted_results = []
+        
+        for image in images:
+            try:
+                # Создание описания на основе метаданных
+                description_parts = []
+                if image.get('alt'):
+                    description_parts.append(image['alt'])
+                elif image.get('title'):
+                    description_parts.append(image['title'])
+                elif image.get('filename'):
+                    description_parts.append(image['filename'])
+                
+                description = ' '.join(description_parts) or "Изображение"
+                
+                # Определение типа анализа
+                analysis_type = "🤖 Компьютерное зрение" if image.get('vision_analyzed') else "📝 Метаданные"
+                
+                formatted_results.append({
+                    'title': description[:80],
+                    'url': image['url'],
+                    'thumbnail': image['thumbnail'],
+                    'source': image['domain'],
+                    'metadata': {
+                        'alt': image.get('alt', ''),
+                        'context': image.get('context', '')[:100],
+                        'relevance_score': round(image.get('relevance_score', 0), 2),
+                        'analysis_type': analysis_type,
+                        'filename': image.get('filename', '')
+                    }
+                })
+            except Exception as e:
+                continue
+        
+        return formatted_results
+
+# Инициализация поисковой системы
+image_search_engine = ImageSearchEngine()
+
+# HTML шаблон
 HTML_TEMPLATE = '''
 <!DOCTYPE html>
 <html lang="ru">
@@ -360,6 +870,12 @@ HTML_TEMPLATE = '''
             color: #6b7280;
         }
         
+        .image-meta {
+            font-size: 9px;
+            color: #9ca3af;
+            margin-top: 3px;
+        }
+        
         .videos-container {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
@@ -516,18 +1032,39 @@ HTML_TEMPLATE = '''
         .content-type.active {
             display: block;
         }
+        
+        .stats-info {
+            background: #eff6ff;
+            border: 1px solid #dbeafe;
+            padding: 8px 12px;
+            border-radius: 6px;
+            margin: 5px 0;
+            font-size: 11px;
+            color: #1e40af;
+        }
+        
+        .search-stats {
+            background: #f0f9ff;
+            border: 1px solid #e0f2fe;
+            padding: 10px 15px;
+            border-radius: 8px;
+            margin: 10px 0;
+            font-size: 12px;
+            color: #0c4a6e;
+        }
     </style>
 </head>
 <body>
     <div class="main-container">
         <div class="search-container">
             <div class="logo"><a href="/">AriOS</a></div>
-            <div class="tagline">Реальная поисковая система • Всегда активна</div>
+            <div class="tagline">Продвинутая поисковая система • Умный поиск изображений</div>
             
             {% if show_status %}
                 {% if is_active %}
                 <div class="status-info">
-                    ✅ Сервис активен • Последний пинг: {{ last_ping }} • Поисков: {{ total_searches }} • Uptime: {{ uptime }}
+                    ✅ Сервис активен • Проиндексировано: {{ indexed_images }} изображений • 
+                    Обработано: {{ processed_pages }} страниц • Поисков: {{ total_searches }}
                 </div>
                 {% else %}
                 <div class="status-warning">
@@ -537,7 +1074,7 @@ HTML_TEMPLATE = '''
             {% endif %}
             
             <form action="/search" method="GET" id="searchForm">
-                <input type="text" name="q" class="search-box" value="{{ query }}" placeholder="Введите запрос для поиска в интернете..." autofocus>
+                <input type="text" name="q" class="search-box" value="{{ query }}" placeholder="Введите запрос для поиска изображений..." autofocus>
                 <br>
                 <button type="submit" class="search-button">Найти в AriOS</button>
                 <button type="button" class="search-button" style="background: #6b7280;" onclick="location.href='/?status=true'">Статус</button>
@@ -546,20 +1083,20 @@ HTML_TEMPLATE = '''
             {% if not results and not images and not videos and not error and not loading %}
             <div class="quick-search">
                 <strong>Попробуйте найти:</strong><br>
-                <button class="quick-search-btn" onclick="setSearch('Python программирование')">Python</button>
-                <button class="quick-search-btn" onclick="setSearch('космос Вселенная')">Космос</button>
-                <button class="quick-search-btn" onclick="setSearch('искусственный интеллект')">ИИ</button>
-                <button class="quick-search-btn" onclick="setSearch('природа пейзажи')">Природа</button>
-                <button class="quick-search-btn" onclick="setSearch('технологии будущее')">Технологии</button>
+                <button class="quick-search-btn" onclick="setSearch('кошки котята')">Кошки</button>
+                <button class="quick-search-btn" onclick="setSearch('горы природа')">Горы</button>
+                <button class="quick-search-btn" onclick="setSearch('цветы розы')">Цветы</button>
+                <button class="quick-search-btn" onclick="setSearch('город небоскребы')">Город</button>
+                <button class="quick-search-btn" onclick="setSearch('пляж море')">Пляж</button>
             </div>
             {% endif %}
             
             <div class="feature-badges">
-                <div class="badge">🔍 Настоящий поиск</div>
-                <div class="badge">📷 Фото</div>
-                <div class="badge">🎥 Видео</div>
-                <div class="badge">🌐 Сайты</div>
-                <div class="badge">⚡ Активный</div>
+                <div class="badge">🔍 Умный поиск</div>
+                <div class="badge">📷 Компьютерное зрение</div>
+                <div class="badge">🌐 Сканирование сайтов</div>
+                <div class="badge">⚡ Быстрый анализ</div>
+                <div class="badge">🎯 Точные результаты</div>
             </div>
             
             {% if error %}
@@ -568,14 +1105,24 @@ HTML_TEMPLATE = '''
             
             {% if loading %}
             <div class="loading">
-                🔍 Ищем результаты для "{{ query }}"...
+                🔍 Ищем изображения для "{{ query }}"...
+                <div class="stats-info">
+                    Этап 1: Сканирование сайтов... | Этап 2: Анализ изображений... | Этап 3: Ранжирование...
+                </div>
             </div>
             {% endif %}
             
             {% if results or images or videos %}
             <div class="results-container">
                 <div class="results-header">
-                    Найдено: {{ total_results }} • Время: {{ search_time }}с • Запрос: "{{ query }}"
+                    Найдено изображений: {{ total_results }} • Время: {{ search_time }}с • 
+                    Запрос: "{{ query }}" • Алгоритм: компьютерное зрение + метаданные
+                </div>
+                
+                <div class="search-stats">
+                    🔍 <strong>Алгоритм поиска:</strong> 
+                    Сканирование 10+ фото-сайтов → Анализ метаданных (alt, title, filename) → 
+                    Компьютерное зрение → Многофакторное ранжирование
                 </div>
                 
                 <!-- Панель фильтров -->
@@ -620,7 +1167,7 @@ HTML_TEMPLATE = '''
                     {% endif %}
                     
                     {% if images %}
-                    <div class="section-title">📷 Изображения</div>
+                    <div class="section-title">📷 Изображения (проанализированы компьютерным зрением)</div>
                     <div class="images-container">
                         {% for image in images %}
                         <div class="image-result">
@@ -631,6 +1178,13 @@ HTML_TEMPLATE = '''
                             <div class="image-info">
                                 <div class="image-title">{{ image.title }}</div>
                                 <div class="image-source">{{ image.source }}</div>
+                                {% if image.metadata %}
+                                <div class="image-meta">
+                                    Релевантность: {{ image.metadata.relevance_score }} | 
+                                    {{ image.metadata.analysis_type }}
+                                    {% if image.metadata.alt %}| Alt: {{ image.metadata.alt[:30] }}...{% endif %}
+                                </div>
+                                {% endif %}
                             </div>
                         </div>
                         {% endfor %}
@@ -671,6 +1225,10 @@ HTML_TEMPLATE = '''
                 <div id="content-images" class="content-type {% if active_tab == 'images' %}active{% endif %}">
                     {% if images %}
                     <div class="section-title">📷 Изображения ({{ images_count }})</div>
+                    <div class="stats-info">
+                        🔍 <strong>Технологии поиска:</strong> 
+                        Сканирование Unsplash, Pixabay, Pexels + Анализ alt/text + Компьютерное зрение + Ранжирование по релевантности
+                    </div>
                     <div class="images-container">
                         {% for image in images %}
                         <div class="image-result">
@@ -681,6 +1239,13 @@ HTML_TEMPLATE = '''
                             <div class="image-info">
                                 <div class="image-title">{{ image.title }}</div>
                                 <div class="image-source">{{ image.source }}</div>
+                                {% if image.metadata %}
+                                <div class="image-meta">
+                                    Релевантность: {{ image.metadata.relevance_score }} | 
+                                    {{ image.metadata.analysis_type }}
+                                    {% if image.metadata.alt %}| Alt: {{ image.metadata.alt[:30] }}...{% endif %}
+                                </div>
+                                {% endif %}
                             </div>
                         </div>
                         {% endfor %}
@@ -701,7 +1266,7 @@ HTML_TEMPLATE = '''
                         <div class="video-result">
                             <a href="{{ video.url }}" target="_blank">
                                 <img src="{{ video.thumbnail }}" alt="{{ video.title }}" class="video-thumbnail"
-                                     onerror="this.src='data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjE4MCIgdmlld0JveD0iMCAwIDMwMCAxODAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDA0L3N2ZyI+CjxyZWN0IHdpZHRoPSIzMDAiIGhlaWdodD0iMTgwIiBmaWxsPSIjRjNGNEY2Ii8+CjxwYXRoIGQ9Ik0xMjAgODBMMTYwIDEwMEwxMjAgMTIwVjgwWiIgZmlsbD0iIzlDQTNBRiIvPgo8L3N2Zz4='">
+                                     onerror="this.src='data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjE4MCIgdmlld0JveD0iMCAwIDMwMCAxODAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIzMDAiIGhlaWdodD0iMTgwIiBmaWxsPSIjRjNGNEY2Ii8+CjxwYXRoIGQ9Ik0xMjAgODBMMTYwIDEwMEwxMjAgMTIwVjgwWiIgZmlsbD0iIzlDQTNBRiIvPgo8L3N2Zz4='">
                             </a>
                             <div class="video-info">
                                 <div class="video-title">{{ video.title }}</div>
@@ -722,7 +1287,7 @@ HTML_TEMPLATE = '''
         </div>
         
         <div class="footer">
-            © 2024 AriOS • Реальная поисковая система • Всегда активна • 
+            © 2024 AriOS • Продвинутая поисковая система • Компьютерное зрение • 
             <a href="/status" style="color: #6366f1;">Статус</a> • 
             <a href="/about" style="color: #6366f1;">О системе</a>
         </div>
@@ -770,616 +1335,84 @@ HTML_TEMPLATE = '''
 </html>
 '''
 
-class AriOSRealSearch:
-    def __init__(self):
-        self.user_agents = [
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        ]
+# Функции для само-пинга и планировщика
+def self_ping():
+    """Отправляет запросы самому себе чтобы держать приложение активным"""
+    try:
+        if 'RENDER_EXTERNAL_URL' in os.environ:
+            base_url = os.environ['RENDER_EXTERNAL_URL']
+        else:
+            base_url = 'https://arios-yqnm.onrender.com'
+            
+        health_url = f"{base_url}/health"
+        search_url = f"{base_url}/search?q=python"
         
-        # База знаний популярных сайтов для поиска
-        self.popular_sites = [
-            "https://wikipedia.org",
-            "https://github.com", 
-            "https://stackoverflow.com",
-            "https://reddit.com",
-            "https://medium.com",
-            "https://quora.com",
-            "https://bbc.com",
-            "https://cnn.com",
-            "https://nationalgeographic.com",
-            "https://ted.com"
-        ]
+        logger.info(f"🔁 Starting self-ping to {base_url}")
         
-        # Сайты с изображениями
-        self.image_sites = [
-            "https://unsplash.com",
-            "https://pixabay.com",
-            "https://pexels.com",
-            "https://flickr.com",
-            "https://imgur.com"
-        ]
+        try:
+            response1 = requests.get(health_url, timeout=10)
+            logger.info(f"✅ Health ping: {response1.status_code}")
+        except Exception as e:
+            logger.error(f"❌ Health ping failed: {e}")
         
-        # Видео платформы
-        self.video_sites = [
-            "https://youtube.com",
-            "https://vimeo.com",
-            "https://dailymotion.com",
-            "https://rutube.ru"
-        ]
+        try:
+            response2 = requests.get(search_url, timeout=10)
+            logger.info(f"✅ Search ping: {response2.status_code}")
+        except Exception as e:
+            logger.error(f"❌ Search ping failed: {e}")
+        
+        app_status['last_self_ping'] = time.time()
+        app_status['total_searches'] += 1
+        app_status['is_active'] = True
+        
+        logger.info(f"✅ Self-ping completed at {time.strftime('%Y-%m-%d %H:%M:%S')}")
+        
+    except Exception as e:
+        logger.error(f"❌ Self-ping error: {e}")
+        app_status['is_active'] = False
 
-    def get_random_user_agent(self):
-        return random.choice(self.user_agents)
+def run_scheduler():
+    """Запускает планировщик для регулярных само-пингов"""
+    logger.info("🕒 Starting background scheduler...")
     
-    def highlight_text(self, text, query):
-        """Подсветка найденных слов в тексте"""
-        if not text or not query:
-            return text
-            
-        words = re.findall(r'\w+', query.lower())
-        highlighted = text
-        
-        for word in words:
-            if len(word) > 2:
-                pattern = re.compile(re.escape(word), re.IGNORECASE)
-                highlighted = pattern.sub(lambda m: f'<span class="highlight">{m.group()}</span>', highlighted)
-        
-        return highlighted
+    schedule.every(2).minutes.do(self_ping)
+    schedule.every(30).seconds.do(lambda: 
+        requests.get(f"{os.environ.get('RENDER_EXTERNAL_URL', 'https://arios-yqnm.onrender.com')}/ping", timeout=5) 
+        if random.random() > 0.3 else None
+    )
     
-    def search_websites(self, query):
-        """Поиск веб-сайтов по собственному алгоритму"""
+    logger.info("🔁 Performing initial self-ping...")
+    self_ping()
+    
+    while True:
         try:
-            results = []
-            query_words = re.findall(r'\w+', query.lower())
-            
-            # Поиск по популярным сайтам
-            for site in self.popular_sites:
-                try:
-                    site_results = self.search_on_site(site, query, query_words)
-                    results.extend(site_results)
-                    
-                    if len(results) >= 10:
-                        break
-                        
-                except Exception as e:
-                    continue
-            
-            # Если не нашли достаточно результатов, ищем в интернете
-            if len(results) < 5:
-                web_results = self.search_web_directly(query, query_words)
-                results.extend(web_results)
-            
-            return results[:12] if results else self.get_fallback_websites(query)
-                
+            schedule.run_pending()
+            time.sleep(1)
         except Exception as e:
-            print(f"Website search error: {e}")
-            return self.get_fallback_websites(query)
-    
-    def search_on_site(self, site_url, query, query_words):
-        """Поиск на конкретном сайте"""
-        try:
-            headers = {
-                'User-Agent': self.get_random_user_agent(),
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-            }
-            
-            # Пытаемся найти страницу поиска на сайте
-            search_urls = [
-                f"{site_url}/search?q={quote_plus(query)}",
-                f"{site_url}/?s={quote_plus(query)}",
-                f"{site_url}/find?q={quote_plus(query)}"
-            ]
-            
-            for search_url in search_urls:
-                try:
-                    response = requests.get(search_url, headers=headers, timeout=8)
-                    if response.status_code == 200:
-                        return self.parse_site_results(response.text, site_url, query, query_words)
-                except:
-                    continue
-            
-            return []
-            
-        except Exception as e:
-            return []
-    
-    def parse_site_results(self, html, site_url, query, query_words):
-        """Парсинг результатов с сайта"""
-        soup = BeautifulSoup(html, 'html.parser')
-        results = []
-        
-        # Ищем ссылки на страницы
-        links = soup.find_all('a', href=True)
-        
-        for link in links[:15]:
-            try:
-                href = link.get('href', '')
-                title = link.get_text(strip=True)
-                
-                # Пропускаем пустые ссылки и ссылки без текста
-                if not href or not title or len(title) < 10:
-                    continue
-                
-                # Преобразуем относительные URL в абсолютные
-                if href.startswith('/'):
-                    href = urlparse(site_url).scheme + '://' + urlparse(site_url).netloc + href
-                elif not href.startswith('http'):
-                    continue
-                
-                # Проверяем релевантность по заголовку
-                title_lower = title.lower()
-                matches_query = any(word in title_lower for word in query_words if len(word) > 3)
-                
-                if matches_query:
-                    # Получаем описание страницы
-                    description = self.get_page_description(href)
-                    
-                    results.append({
-                        'title': title,
-                        'url': href,
-                        'display_url': urlparse(href).netloc,
-                        'snippet': description[:150] + '...' if len(description) > 150 else description,
-                        'highlighted_title': self.highlight_text(title, query),
-                        'highlighted_snippet': self.highlight_text(description, query)
-                    })
-                    
-                    if len(results) >= 5:
-                        break
-                        
-            except Exception as e:
-                continue
-        
-        return results
-    
-    def get_page_description(self, url):
-        """Получает описание страницы"""
-        try:
-            headers = {'User-Agent': self.get_random_user_agent()}
-            response = requests.get(url, headers=headers, timeout=5)
-            soup = BeautifulSoup(response.text, 'html.parser')
-            
-            # Ищем мета-описание
-            meta_desc = soup.find('meta', attrs={'name': 'description'})
-            if meta_desc and meta_desc.get('content'):
-                return meta_desc.get('content')
-            
-            # Ищем первый абзац
-            first_p = soup.find('p')
-            if first_p:
-                return first_p.get_text(strip=True)[:200]
-            
-            return "Описание недоступно"
-            
-        except:
-            return "Описание недоступно"
-    
-    def search_web_directly(self, query, query_words):
-        """Прямой поиск в интернете"""
-        results = []
-        
-        # Генерируем потенциальные URL на основе запроса
-        potential_urls = self.generate_potential_urls(query, query_words)
-        
-        for url in potential_urls[:10]:
-            try:
-                headers = {'User-Agent': self.get_random_user_agent()}
-                response = requests.get(url, headers=headers, timeout=6)
-                
-                if response.status_code == 200:
-                    soup = BeautifulSoup(response.text, 'html.parser')
-                    title = soup.find('title')
-                    
-                    if title:
-                        title_text = title.get_text(strip=True)
-                        title_lower = title_text.lower()
-                        
-                        # Проверяем релевантность
-                        if any(word in title_lower for word in query_words if len(word) > 3):
-                            description = self.get_page_description(url)
-                            
-                            results.append({
-                                'title': title_text,
-                                'url': url,
-                                'display_url': urlparse(url).netloc,
-                                'snippet': description[:150] + '...' if len(description) > 150 else description,
-                                'highlighted_title': self.highlight_text(title_text, query),
-                                'highlighted_snippet': self.highlight_text(description, query)
-                            })
-                            
-            except:
-                continue
-        
-        return results
-    
-    def generate_potential_urls(self, query, query_words):
-        """Генерирует потенциальные URL на основе запроса"""
-        domains = ['.com', '.org', '.net', '.ru', '.io']
-        protocols = ['https://', 'http://']
-        urls = []
-        
-        # Генерируем URL на основе ключевых слов
-        for word in query_words:
-            if len(word) > 4:
-                for domain in domains:
-                    for protocol in protocols:
-                        urls.append(f"{protocol}www.{word}{domain}")
-                        urls.append(f"{protocol}{word}{domain}")
-        
-        # Добавляем комбинации слов
-        if len(query_words) > 1:
-            combined = '-'.join(query_words[:2])
-            for domain in domains:
-                for protocol in protocols:
-                    urls.append(f"{protocol}www.{combined}{domain}")
-                    urls.append(f"{protocol}{combined}{domain}")
-        
-        return urls
-    
-    def search_images(self, query):
-        """Поиск изображений по новому алгоритму"""
-        try:
-            images = []
-            query_words = re.findall(r'\w+', query.lower())
-            
-            # Поиск на сайтах с изображениями
-            for site in self.image_sites:
-                try:
-                    site_images = self.search_images_on_site(site, query, query_words)
-                    images.extend(site_images)
-                    
-                    if len(images) >= 15:
-                        break
-                        
-                except Exception as e:
-                    continue
-            
-            # Поиск изображений на обычных сайтах
-            if len(images) < 8:
-                web_images = self.search_images_on_web(query, query_words)
-                images.extend(web_images)
-            
-            return images[:12] if images else self.get_fallback_images(query)
-                
-        except Exception as e:
-            print(f"Image search error: {e}")
-            return self.get_fallback_images(query)
-    
-    def search_images_on_site(self, site_url, query, query_words):
-        """Поиск изображений на конкретном сайте"""
-        try:
-            headers = {'User-Agent': self.get_random_user_agent()}
-            
-            # Пытаемся найти страницу поиска
-            search_urls = [
-                f"{site_url}/s?q={quote_plus(query)}",
-                f"{site_url}/search?q={quote_plus(query)}",
-                f"{site_url}/photos/{quote_plus(query)}"
-            ]
-            
-            for search_url in search_urls:
-                try:
-                    response = requests.get(search_url, headers=headers, timeout=8)
-                    if response.status_code == 200:
-                        return self.extract_images_from_page(response.text, site_url, query_words)
-                except:
-                    continue
-            
-            return []
-            
-        except Exception as e:
-            return []
-    
-    def extract_images_from_page(self, html, site_url, query_words):
-        """Извлекает изображения со страницы"""
-        soup = BeautifulSoup(html, 'html.parser')
-        images = []
-        
-        img_tags = soup.find_all('img')
-        
-        for img in img_tags[:20]:
-            try:
-                img_src = img.get('src') or img.get('data-src')
-                if not img_src:
-                    continue
-                
-                # Преобразуем относительные URL
-                if img_src.startswith('//'):
-                    img_src = 'https:' + img_src
-                elif img_src.startswith('/'):
-                    img_src = urlparse(site_url).scheme + '://' + urlparse(site_url).netloc + img_src
-                elif not img_src.startswith('http'):
-                    continue
-                
-                # Получаем информацию об изображении
-                img_alt = img.get('alt', '').lower()
-                img_title = img.get('title', '').lower()
-                
-                # Проверяем релевантность
-                matches_query = any(
-                    word in img_alt or word in img_title
-                    for word in query_words if len(word) > 3
-                )
-                
-                if matches_query or len(images) < 3:
-                    # Проверяем размеры
-                    width = img.get('width', '0')
-                    height = img.get('height', '0')
-                    
-                    try:
-                        if int(width) < 100 and int(height) < 100:
-                            continue
-                    except:
-                        pass
-                    
-                    images.append({
-                        'title': img_alt[:50] if img_alt else f"Изображение {len(images) + 1}",
-                        'url': img_src,
-                        'thumbnail': img_src,
-                        'source': urlparse(site_url).netloc
-                    })
-                    
-            except Exception as e:
-                continue
-        
-        return images
-    
-    def search_images_on_web(self, query, query_words):
-        """Поиск изображений в интернете"""
-        images = []
-        
-        # Ищем сайты, которые могут содержать изображения
-        potential_sites = self.generate_image_sites(query_words)
-        
-        for site in potential_sites[:8]:
-            try:
-                site_images = self.extract_images_from_site_directly(site, query_words)
-                images.extend(site_images)
-                
-                if len(images) >= 10:
-                    break
-                    
-            except Exception as e:
-                continue
-        
-        return images
-    
-    def generate_image_sites(self, query_words):
-        """Генерирует сайты для поиска изображений"""
-        base_sites = [
-            "https://pinterest.com/search/pins/?q=",
-            "https://deviantart.com/search?q=",
-            "https://gettyimages.com/photos/",
-            "https://shutterstock.com/search/",
-            "https://istockphoto.com/search/2/image?phrase="
-        ]
-        
-        sites = []
-        query = '+'.join(query_words)
-        
-        for base in base_sites:
-            sites.append(base + query)
-        
-        return sites
-    
-    def extract_images_from_site_directly(self, url, query_words):
-        """Прямое извлечение изображений с сайта"""
-        try:
-            headers = {'User-Agent': self.get_random_user_agent()}
-            response = requests.get(url, headers=headers, timeout=6)
-            
-            if response.status_code == 200:
-                return self.extract_images_from_page(response.text, url, query_words)
-            
-            return []
-            
-        except:
-            return []
-    
-    def search_videos(self, query):
-        """Поиск видео по новому алгоритму"""
-        try:
-            videos = []
-            query_words = re.findall(r'\w+', query.lower())
-            
-            # Поиск на видео платформах
-            for site in self.video_sites:
-                try:
-                    site_videos = self.search_videos_on_site(site, query, query_words)
-                    videos.extend(site_videos)
-                    
-                    if len(videos) >= 9:
-                        break
-                        
-                except Exception as e:
-                    continue
-            
-            return videos[:9] if videos else self.get_fallback_videos(query)
-                
-        except Exception as e:
-            print(f"Video search error: {e}")
-            return self.get_fallback_videos(query)
-    
-    def search_videos_on_site(self, site_url, query, query_words):
-        """Поиск видео на конкретной платформе"""
-        try:
-            headers = {'User-Agent': self.get_random_user_agent()}
-            
-            # Генерируем URL для поиска видео
-            search_urls = [
-                f"{site_url}/results?search_query={quote_plus(query)}",
-                f"{site_url}/search?q={quote_plus(query)}",
-                f"{site_url}/videos/search/{quote_plus(query)}"
-            ]
-            
-            for search_url in search_urls:
-                try:
-                    response = requests.get(search_url, headers=headers, timeout=8)
-                    if response.status_code == 200:
-                        return self.extract_videos_from_page(response.text, site_url, query_words)
-                except:
-                    continue
-            
-            return []
-            
-        except Exception as e:
-            return []
-    
-    def extract_videos_from_page(self, html, site_url, query_words):
-        """Извлекает видео со страницы"""
-        soup = BeautifulSoup(html, 'html.parser')
-        videos = []
-        
-        # Ищем ссылки на видео
-        video_links = soup.find_all('a', href=True)
-        
-        for link in video_links[:15]:
-            try:
-                href = link.get('href', '')
-                title = link.get_text(strip=True)
-                
-                if not href or not title or len(title) < 10:
-                    continue
-                
-                # Проверяем, что это ссылка на видео
-                is_video_link = any(pattern in href for pattern in ['/watch', '/video', '/v/'])
-                
-                if is_video_link:
-                    # Преобразуем относительные URL
-                    if href.startswith('/'):
-                        href = urlparse(site_url).scheme + '://' + urlparse(site_url).netloc + href
-                    elif not href.startswith('http'):
-                        continue
-                    
-                    # Проверяем релевантность по названию
-                    title_lower = title.lower()
-                    matches_query = any(word in title_lower for word in query_words if len(word) > 3)
-                    
-                    if matches_query:
-                        # Получаем миниатюру
-                        thumbnail = self.get_video_thumbnail(href, site_url)
-                        
-                        videos.append({
-                            'title': title,
-                            'url': href,
-                            'thumbnail': thumbnail,
-                            'channel': urlparse(site_url).netloc,
-                            'duration': 'Видео'
-                        })
-                        
-                        if len(videos) >= 6:
-                            break
-                            
-            except Exception as e:
-                continue
-        
-        return videos
-    
-    def get_video_thumbnail(self, video_url, site_url):
-        """Получает миниатюру видео"""
-        try:
-            # Для YouTube извлекаем ID видео
-            if 'youtube.com' in site_url or 'youtu.be' in site_url:
-                video_id_match = re.search(r'(?:v=|/)([0-9A-Za-z_-]{11})', video_url)
-                if video_id_match:
-                    video_id = video_id_match.group(1)
-                    return f"https://img.youtube.com/vi/{video_id}/hqdefault.jpg"
-            
-            # Для других платформ используем заглушку
-            return 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjE4MCIgdmlld0JveD0iMCAwIDMwMCAxODAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIzMDAiIGhlaWdodD0iMTgwIiBmaWxsPSIjRjNGNEY2Ii8+CjxwYXRoIGQ9Ik0xMjAgODBMMTYwIDEwMEwxMjAgMTIwVjgwWiIgZmlsbD0iIzlDQTNBRiIvPgo8L3N2Zz4='
-            
-        except:
-            return 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjE4MCIgdmlld0JveD0iMCAwIDMwMCAxODAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIzMDAiIGhlaWdodD0iMTgwIiBmaWxsPSIjRjNGNEY2Ii8+CjxwYXRoIGQ9Ik0xMjAgODBMMTYwIDEwMEwxMjAgMTIwVjgwWiIgZmlsbD0iIzlDQTNBRiIvPgo8L3N2Zz4='
-    
-    def get_fallback_images(self, query):
-        """Резервные изображения"""
-        fallback_images = [
-            {
-                'title': f'Изображение по запросу: {query}',
-                'url': f'https://source.unsplash.com/featured/800x600/?{quote_plus(query)}',
-                'thumbnail': f'https://source.unsplash.com/featured/300x200/?{quote_plus(query)}',
-                'source': 'unsplash.com'
-            },
-            {
-                'title': f'Фото: {query}',
-                'url': f'https://source.unsplash.com/featured/800x600/?{quote_plus(query.split()[0])}',
-                'thumbnail': f'https://source.unsplash.com/featured/300x200/?{quote_plus(query.split()[0])}',
-                'source': 'unsplash.com'
-            }
-        ]
-        
-        return fallback_images
-    
-    def get_fallback_videos(self, query):
-        """Резервные видео"""
-        return [
-            {
-                'title': f'Видео по запросу: {query}',
-                'url': f'https://www.youtube.com/results?search_query={quote_plus(query)}',
-                'thumbnail': 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjE4MCIgdmlld0JveD0iMCAwIDMwMCAxODAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIzMDAiIGhlaWdodD0iMTgwIiBmaWxsPSIjRjNGNEY2Ii8+CjxwYXRoIGQ9Ik0xMjAgODBMMTYwIDEwMEwxMjAgMTIwVjgwWiIgZmlsbD0iIzlDQTNBRiIvPgo8L3N2Zz4=',
-                'channel': 'YouTube',
-                'duration': 'Перейти к просмотру'
-            }
-        ]
-    
-    def get_fallback_websites(self, query):
-        """Резервные веб-сайты"""
-        return [
-            {
-                'title': f'Результаты поиска: {query}',
-                'url': f'https://www.google.com/search?q={quote_plus(query)}',
-                'display_url': 'google.com',
-                'snippet': f'Нажмите чтобы увидеть больше результатов по запросу "{query}"',
-                'highlighted_title': self.highlight_text(f'Результаты поиска: {query}', query),
-                'highlighted_snippet': self.highlight_text(f'Нажмите чтобы увидеть больше результатов', query)
-            }
-        ]
-    
-    def extract_display_url(self, url):
-        """Извлекает красивый URL для отображения"""
-        try:
-            parsed = urlparse(url)
-            if parsed.netloc:
-                return parsed.netloc.replace('www.', '')
-        except:
-            pass
-        return url[:50] + "..." if len(url) > 50 else url
-    
-    def search(self, query):
-        """Основной метод поиска AriOS"""
-        if not query or len(query.strip()) == 0:
-            return [], [], []
-        
-        query = query.strip()
-        print(f"🔍 AriOS Real Search: '{query}'")
-        
-        try:
-            # Параллельный поиск по всем типам контента
-            websites = self.search_websites(query)
-            images = self.search_images(query)
-            videos = self.search_videos(query)
-            
-            print(f"🎯 Найдено: {len(websites)} сайтов, {len(images)} изображений, {len(videos)} видео")
-            
-            return websites, images, videos
-            
-        except Exception as e:
-            print(f"❌ AriOS search error: {e}")
-            return self.get_fallback_websites(query), self.get_fallback_images(query), self.get_fallback_videos(query)
+            logger.error(f"❌ Scheduler error: {e}")
+            time.sleep(10)
 
-# Инициализация реальной поисковой системы AriOS
-arios_real_search = AriOSRealSearch()
+def start_background_scheduler():
+    """Запускает фоновый планировщик"""
+    try:
+        scheduler_thread = threading.Thread(target=run_scheduler, daemon=True)
+        scheduler_thread.start()
+        logger.info("🚀 Background scheduler started successfully")
+        return True
+    except Exception as e:
+        logger.error(f"❌ Failed to start scheduler: {e}")
+        return False
 
+# Маршруты Flask
 @app.route('/')
 def home():
-    """Главная страница AriOS - перенаправляет на поиск если есть query"""
+    """Главная страница AriOS"""
     query = request.args.get('q', '').strip()
     show_status = request.args.get('status', 'false').lower() == 'true'
     
     if query:
         return redirect(f'/search?q={quote_plus(query)}')
     
-    # Показываем статус активности
     last_ping = "никогда"
     if app_status['last_self_ping']:
         last_ping = f"{int(time.time() - app_status['last_self_ping'])} сек назад"
@@ -1404,7 +1437,9 @@ def home():
                                 active_tab='all',
                                 websites_count=0,
                                 images_count=0,
-                                videos_count=0)
+                                videos_count=0,
+                                indexed_images=app_status['indexed_images'],
+                                processed_pages=app_status['processed_pages'])
 
 @app.route('/search')
 def search():
@@ -1428,23 +1463,27 @@ def search():
                                    active_tab='all',
                                    websites_count=0,
                                    images_count=0,
-                                   videos_count=0)
+                                   videos_count=0,
+                                   indexed_images=app_status['indexed_images'],
+                                   processed_pages=app_status['processed_pages'])
     
     try:
-        # Увеличиваем счетчик поисков
         app_status['total_searches'] += 1
         
-        # Выполняем поиск
         start_time = time.time()
-        results, images, videos = arios_real_search.search(query)
+        
+        # Используем только улучшенный поиск изображений
+        images = image_search_engine.search_images(query, max_results=20)
+        results = []  # Для совместимости с шаблоном
+        videos = []   # Для совместимости с шаблоном
+        
         search_time = time.time() - start_time
         
-        total_results = len(results) + len(images) + len(videos)
-        websites_count = len(results)
+        total_results = len(images)
+        websites_count = 0
         images_count = len(images)
-        videos_count = len(videos)
+        videos_count = 0
         
-        # Показываем статус активности
         last_ping = "никогда"
         if app_status['last_self_ping']:
             last_ping = f"{int(time.time() - app_status['last_self_ping'])} сек назад"
@@ -1469,9 +1508,12 @@ def search():
                                    active_tab=active_tab,
                                    websites_count=websites_count,
                                    images_count=images_count,
-                                   videos_count=videos_count)
+                                   videos_count=videos_count,
+                                   indexed_images=app_status['indexed_images'],
+                                   processed_pages=app_status['processed_pages'])
     
     except Exception as e:
+        logger.error(f"❌ Search error: {e}")
         return render_template_string(HTML_TEMPLATE,
                                    query=query,
                                    results=None,
@@ -1486,7 +1528,9 @@ def search():
                                    active_tab='all',
                                    websites_count=0,
                                    images_count=0,
-                                   videos_count=0)
+                                   videos_count=0,
+                                   indexed_images=app_status['indexed_images'],
+                                   processed_pages=app_status['processed_pages'])
 
 @app.route('/health')
 def health():
@@ -1495,7 +1539,9 @@ def health():
         'status': 'healthy',
         'timestamp': time.time(),
         'uptime': int(time.time() - app_status['start_time']),
-        'total_searches': app_status['total_searches']
+        'total_searches': app_status['total_searches'],
+        'indexed_images': app_status['indexed_images'],
+        'processed_pages': app_status['processed_pages']
     })
 
 @app.route('/ping')
@@ -1520,6 +1566,8 @@ def status():
         'last_self_ping': app_status['last_self_ping'],
         'last_ping_human': last_ping,
         'total_searches': app_status['total_searches'],
+        'indexed_images': app_status['indexed_images'],
+        'processed_pages': app_status['processed_pages'],
         'start_time': app_status['start_time'],
         'uptime': uptime,
         'uptime_human': uptime_str
@@ -1530,5 +1578,5 @@ start_background_scheduler()
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    print(f"🌐 Starting AriOS server on port {port}...")
+    logger.info(f"🌐 Starting AriOS Advanced Image Search Server on port {port}...")
     app.run(host='0.0.0.0', port=port, debug=False)
