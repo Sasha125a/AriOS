@@ -196,8 +196,55 @@ HTML_TEMPLATE = '''
             box-shadow: 0 6px 20px rgba(99, 102, 241, 0.4);
         }
         
+        .filter-tabs {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin: 20px 0;
+            flex-wrap: wrap;
+        }
+        
+        .filter-tab {
+            background: #f8fafc;
+            border: 2px solid #e5e7eb;
+            padding: 10px 20px;
+            border-radius: 25px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 14px;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .filter-tab:hover {
+            background: #f1f5f9;
+            border-color: #d1d5db;
+        }
+        
+        .filter-tab.active {
+            background: var(--primary-color);
+            color: white;
+            border-color: var(--primary-color);
+            box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+        }
+        
+        .filter-tab .count {
+            background: rgba(255, 255, 255, 0.2);
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        
+        .filter-tab:not(.active) .count {
+            background: #e5e7eb;
+            color: #374151;
+        }
+        
         .results-container {
-            margin-top: 40px;
+            margin-top: 20px;
             text-align: left;
         }
         
@@ -453,6 +500,21 @@ HTML_TEMPLATE = '''
             font-size: 12px;
             color: #92400e;
         }
+        
+        .no-results {
+            text-align: center;
+            padding: 40px;
+            color: #6b7280;
+            font-size: 16px;
+        }
+        
+        .content-type {
+            display: none;
+        }
+        
+        .content-type.active {
+            display: block;
+        }
     </style>
 </head>
 <body>
@@ -515,53 +577,145 @@ HTML_TEMPLATE = '''
                     Найдено: {{ total_results }} • Время: {{ search_time }}с • Запрос: "{{ query }}"
                 </div>
                 
-                {% if videos %}
-                <div class="section-title">🎥 Видео</div>
-                <div class="videos-container">
-                    {% for video in videos %}
-                    <div class="video-result">
-                        <a href="{{ video.url }}" target="_blank">
-                            <img src="{{ video.thumbnail }}" alt="{{ video.title }}" class="video-thumbnail"
-                                 onerror="this.src='data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjE4MCIgdmlld0JveD0iMCAwIDMwMCAxODAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIzMDAiIGhlaWdodD0iMTgwIiBmaWxsPSIjRjNGNEY2Ii8+CjxwYXRoIGQ9Ik0xMjAgODBMMTYwIDEwMEwxMjAgMTIwVjgwWiIgZmlsbD0iIzlDQTNBRiIvPgo8L3N2Zz4='">
-                        </a>
-                        <div class="video-info">
-                            <div class="video-title">{{ video.title }}</div>
-                            <div class="video-channel">{{ video.channel }}</div>
-                            <div class="video-duration">{{ video.duration }}</div>
+                <!-- Панель фильтров -->
+                <div class="filter-tabs">
+                    <div class="filter-tab {% if active_tab == 'all' %}active{% endif %}" onclick="showContent('all')">
+                        🌐 Все результаты
+                        <span class="count">{{ total_results }}</span>
+                    </div>
+                    <div class="filter-tab {% if active_tab == 'websites' %}active{% endif %}" onclick="showContent('websites')">
+                        📄 Сайты
+                        <span class="count">{{ websites_count }}</span>
+                    </div>
+                    <div class="filter-tab {% if active_tab == 'images' %}active{% endif %}" onclick="showContent('images')">
+                        🖼️ Фото
+                        <span class="count">{{ images_count }}</span>
+                    </div>
+                    <div class="filter-tab {% if active_tab == 'videos' %}active{% endif %}" onclick="showContent('videos')">
+                        🎬 Видео
+                        <span class="count">{{ videos_count }}</span>
+                    </div>
+                </div>
+                
+                <!-- Все результаты -->
+                <div id="content-all" class="content-type {% if active_tab == 'all' %}active{% endif %}">
+                    {% if videos %}
+                    <div class="section-title">🎥 Видео</div>
+                    <div class="videos-container">
+                        {% for video in videos %}
+                        <div class="video-result">
+                            <a href="{{ video.url }}" target="_blank">
+                                <img src="{{ video.thumbnail }}" alt="{{ video.title }}" class="video-thumbnail"
+                                     onerror="this.src='data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjE4MCIgdmlld0JveD0iMCAwIDMwMCAxODAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIzMDAiIGhlaWdodD0iMTgwIiBmaWxsPSIjRjNGNEY2Ii8+CjxwYXRoIGQ9Ik0xMjAgODBMMTYwIDEwMEwxMjAgMTIwVjgwWiIgZmlsbD0iIzlDQTNBRiIvPgo8L3N2Zz4='">
+                            </a>
+                            <div class="video-info">
+                                <div class="video-title">{{ video.title }}</div>
+                                <div class="video-channel">{{ video.channel }}</div>
+                                <div class="video-duration">{{ video.duration }}</div>
+                            </div>
                         </div>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+                    
+                    {% if images %}
+                    <div class="section-title">📷 Изображения</div>
+                    <div class="images-container">
+                        {% for image in images %}
+                        <div class="image-result">
+                            <a href="{{ image.url }}" target="_blank">
+                                <img src="{{ image.thumbnail }}" alt="{{ image.title }}"
+                                     onerror="this.src='data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjE1MCIgdmlld0JveD0iMCAwIDIwMCAxNTAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIyMDAiIGhlaWdodD0iMTUwIiBmaWxsPSIjRjNGNEY2Ii8+CjxwYXRoIGQ9Ik04MCA2MEgxMjBNNzAgODBIMTMwTTY1IDEwMEgxMzUiIHN0cm9rZT0iIzlDQTNBRiIgc3Ryb2tlLXdpZHRoPSIyIi8+CjxjaXJjbGUgY3g9IjEwMCIgY3k9IjUwIiByPSIxNSIgc3Ryb2tlPSIjOUNBM0FGIiBzdHJva2Utd2lkdGg9IjIiLz4KPC9zdmc+'">
+                            </a>
+                            <div class="image-info">
+                                <div class="image-title">{{ image.title }}</div>
+                                <div class="image-source">{{ image.source }}</div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+                    
+                    {% if results %}
+                    <div class="section-title">🌐 Веб-сайты</div>
+                    {% for result in results %}
+                    <div class="result-item">
+                        <a href="{{ result.url }}" class="result-title" target="_blank">{{ result.highlighted_title|safe }}</a>
+                        <div class="result-url">{{ result.display_url }}</div>
+                        <div class="result-snippet">{{ result.highlighted_snippet|safe }}</div>
                     </div>
                     {% endfor %}
+                    {% endif %}
                 </div>
-                {% endif %}
                 
-                {% if images %}
-                <div class="section-title">📷 Изображения</div>
-                <div class="images-container">
-                    {% for image in images %}
-                    <div class="image-result">
-                        <a href="{{ image.url }}" target="_blank">
-                            <img src="{{ image.thumbnail }}" alt="{{ image.title }}"
-                                 onerror="this.src='data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjE1MCIgdmlld0JveD0iMCAwIDIwMCAxNTAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIyMDAiIGhlaWdodD0iMTUwIiBmaWxsPSIjRjNGNEY2Ii8+CjxwYXRoIGQ9Ik04MCA2MEgxMjBNNzAgODBIMTMwTTY1IDEwMEgxMzUiIHN0cm9rZT0iIzlDQTNBRiIgc3Ryb2tlLXdpZHRoPSIyIi8+CjxjaXJjbGUgY3g9IjEwMCIgY3k9IjUwIiByPSIxNSIgc3Ryb2tlPSIjOUNBM0FGIiBzdHJva2Utd2lkdGg9IjIiLz4KPC9zdmc+'">
-                        </a>
-                        <div class="image-info">
-                            <div class="image-title">{{ image.title }}</div>
-                            <div class="image-source">{{ image.source }}</div>
-                        </div>
+                <!-- Только сайты -->
+                <div id="content-websites" class="content-type {% if active_tab == 'websites' %}active{% endif %}">
+                    {% if results %}
+                    <div class="section-title">🌐 Веб-сайты ({{ websites_count }})</div>
+                    {% for result in results %}
+                    <div class="result-item">
+                        <a href="{{ result.url }}" class="result-title" target="_blank">{{ result.highlighted_title|safe }}</a>
+                        <div class="result-url">{{ result.display_url }}</div>
+                        <div class="result-snippet">{{ result.highlighted_snippet|safe }}</div>
                     </div>
                     {% endfor %}
+                    {% else %}
+                    <div class="no-results">
+                        📭 Нет результатов для веб-сайтов
+                    </div>
+                    {% endif %}
                 </div>
-                {% endif %}
                 
-                {% if results %}
-                <div class="section-title">🌐 Веб-сайты</div>
-                {% for result in results %}
-                <div class="result-item">
-                    <a href="{{ result.url }}" class="result-title" target="_blank">{{ result.highlighted_title|safe }}</a>
-                    <div class="result-url">{{ result.display_url }}</div>
-                    <div class="result-snippet">{{ result.highlighted_snippet|safe }}</div>
+                <!-- Только изображения -->
+                <div id="content-images" class="content-type {% if active_tab == 'images' %}active{% endif %}">
+                    {% if images %}
+                    <div class="section-title">📷 Изображения ({{ images_count }})</div>
+                    <div class="images-container">
+                        {% for image in images %}
+                        <div class="image-result">
+                            <a href="{{ image.url }}" target="_blank">
+                                <img src="{{ image.thumbnail }}" alt="{{ image.title }}"
+                                     onerror="this.src='data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjE1MCIgdmlld0JveD0iMCAwIDIwMCAxNTAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIyMDAiIGhlaWdodD0iMTUwIiBmaWxsPSIjRjNGNEY2Ii8+CjxwYXRoIGQ9Ik04MCA2MEgxMjBNNzAgODBIMTMwTTY1IDEwMEgxMzUiIHN0cm9rZT0iIzlDQTNBRiIgc3Ryb2tlLXdpZHRoPSIyIi8+CjxjaXJjbGUgY3g9IjEwMCIgY3k9IjUwIiByPSIxNSIgc3Ryb2tlPSIjOUNBM0FGIiBzdHJva2Utd2lkdGg9IjIiLz4KPC9zdmc+'">
+                            </a>
+                            <div class="image-info">
+                                <div class="image-title">{{ image.title }}</div>
+                                <div class="image-source">{{ image.source }}</div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% else %}
+                    <div class="no-results">
+                        🖼️ Нет результатов для изображений
+                    </div>
+                    {% endif %}
                 </div>
-                {% endfor %}
-                {% endif %}
+                
+                <!-- Только видео -->
+                <div id="content-videos" class="content-type {% if active_tab == 'videos' %}active{% endif %}">
+                    {% if videos %}
+                    <div class="section-title">🎥 Видео ({{ videos_count }})</div>
+                    <div class="videos-container">
+                        {% for video in videos %}
+                        <div class="video-result">
+                            <a href="{{ video.url }}" target="_blank">
+                                <img src="{{ video.thumbnail }}" alt="{{ video.title }}" class="video-thumbnail"
+                                     onerror="this.src='data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjE4MCIgdmlld0JveD0iMCAwIDMwMCAxODAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIzMDAiIGhlaWdodD0iMTgwIiBmaWxsPSIjRjNGNEY2Ii8+CjxwYXRoIGQ9Ik0xMjAgODBMMTYwIDEwMEwxMjAgMTIwVjgwWiIgZmlsbD0iIzlDQTNBRiIvPgo8L3N2Zz4='">
+                            </a>
+                            <div class="video-info">
+                                <div class="video-title">{{ video.title }}</div>
+                                <div class="video-channel">{{ video.channel }}</div>
+                                <div class="video-duration">{{ video.duration }}</div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% else %}
+                    <div class="no-results">
+                        🎬 Нет результатов для видео
+                    </div>
+                    {% endif %}
+                </div>
             </div>
             {% endif %}
         </div>
@@ -578,6 +732,36 @@ HTML_TEMPLATE = '''
             document.querySelector('.search-box').value = term;
             document.getElementById('searchForm').submit();
         }
+        
+        function showContent(type) {
+            // Скрываем все контент-блоки
+            document.querySelectorAll('.content-type').forEach(el => {
+                el.classList.remove('active');
+            });
+            
+            // Показываем выбранный контент-блок
+            document.getElementById('content-' + type).classList.add('active');
+            
+            // Обновляем активную вкладку
+            document.querySelectorAll('.filter-tab').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            event.target.classList.add('active');
+            
+            // Сохраняем выбранную вкладку в URL
+            const url = new URL(window.location);
+            url.searchParams.set('tab', type);
+            window.history.replaceState({}, '', url);
+        }
+        
+        // Восстанавливаем выбранную вкладку при загрузке
+        document.addEventListener('DOMContentLoaded', function() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const savedTab = urlParams.get('tab');
+            if (savedTab) {
+                showContent(savedTab);
+            }
+        });
         
         document.querySelector('.search-box').focus();
     </script>
@@ -842,13 +1026,18 @@ def home():
                                 last_ping=last_ping,
                                 total_searches=app_status['total_searches'],
                                 uptime=uptime_str,
-                                is_active=app_status['is_active'])
+                                is_active=app_status['is_active'],
+                                active_tab='all',
+                                websites_count=0,
+                                images_count=0,
+                                videos_count=0)
 
 @app.route('/search')
 def search():
     """Поиск в AriOS - основная точка входа"""
     query = request.args.get('q', '').strip()
     show_status = request.args.get('status', 'false').lower() == 'true'
+    active_tab = request.args.get('tab', 'all')
     
     if not query:
         return render_template_string(HTML_TEMPLATE, 
@@ -861,7 +1050,11 @@ def search():
                                    error="Введите поисковый запрос",
                                    loading=False,
                                    auto_search=False,
-                                   show_status=show_status)
+                                   show_status=show_status,
+                                   active_tab='all',
+                                   websites_count=0,
+                                   images_count=0,
+                                   videos_count=0)
     
     try:
         # Увеличиваем счетчик поисков
@@ -873,6 +1066,9 @@ def search():
         search_time = time.time() - start_time
         
         total_results = len(results) + len(images) + len(videos)
+        websites_count = len(results)
+        images_count = len(images)
+        videos_count = len(videos)
         
         # Показываем статус активности
         last_ping = "никогда"
@@ -895,7 +1091,11 @@ def search():
                                    last_ping=last_ping,
                                    total_searches=app_status['total_searches'],
                                    uptime=uptime_str,
-                                   is_active=app_status['is_active'])
+                                   is_active=app_status['is_active'],
+                                   active_tab=active_tab,
+                                   websites_count=websites_count,
+                                   images_count=images_count,
+                                   videos_count=videos_count)
     
     except Exception as e:
         return render_template_string(HTML_TEMPLATE,
@@ -908,151 +1108,13 @@ def search():
                                    error=f"Ошибка поиска: {str(e)}",
                                    loading=False,
                                    auto_search=False,
-                                   show_status=show_status)
+                                   show_status=show_status,
+                                   active_tab='all',
+                                   websites_count=0,
+                                   images_count=0,
+                                   videos_count=0)
 
-@app.route('/api/search')
-def api_search():
-    """AriOS JSON API"""
-    query = request.args.get('q', '').strip()
-    
-    if not query:
-        return jsonify({'error': 'Query parameter "q" is required'}), 400
-    
-    try:
-        app_status['total_searches'] += 1
-        
-        start_time = time.time()
-        results, images, videos = arios_real_search.search(query)
-        search_time = time.time() - start_time
-        
-        return jsonify({
-            'query': query,
-            'total_results': len(results) + len(images) + len(videos),
-            'search_time': f"{search_time:.2f}",
-            'websites': results,
-            'images': images,
-            'videos': videos,
-            'search_engine': 'AriOS',
-            'app_status': app_status,
-            'timestamp': time.time()
-        })
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/health')
-def health():
-    """Проверка здоровья AriOS"""
-    app_status['last_self_ping'] = time.time()
-    app_status['is_active'] = True
-    
-    return jsonify({
-        'status': 'healthy', 
-        'service': 'AriOS Real Search',
-        'timestamp': time.time(),
-        'version': '1.0.0',
-        'uptime': int(time.time() - app_status['start_time']),
-        'total_searches': app_status['total_searches'],
-        'last_self_ping': app_status['last_self_ping'],
-        'is_active': app_status['is_active'],
-        'message': '✅ Сервис активен и работает'
-    })
-
-@app.route('/ping')
-def ping():
-    """Эндпоинт для пинга"""
-    app_status['last_self_ping'] = time.time()
-    app_status['is_active'] = True
-    return jsonify({'status': 'pong', 'timestamp': time.time()})
-
-@app.route('/status')
-def status():
-    """Страница статуса"""
-    last_ping = "никогда"
-    if app_status['last_self_ping']:
-        last_ping = f"{int(time.time() - app_status['last_self_ping'])} секунд назад"
-    
-    uptime = int(time.time() - app_status['start_time'])
-    uptime_str = f"{uptime // 3600} часов {(uptime % 3600) // 60} минут {uptime % 60} секунд"
-    
-    status_html = f'''
-    <div style="max-width: 800px; margin: 0 auto; padding: 40px; font-family: Arial, sans-serif;">
-        <h1 style="color: #6366f1; text-align: center;">Статус AriOS</h1>
-        
-        <div style="background: #f0fdf4; padding: 30px; border-radius: 15px; margin: 20px 0;">
-            <h3>✅ Система активна и работает</h3>
-            <p><strong>Время работы:</strong> {uptime_str}</p>
-            <p><strong>Всего поисков:</strong> {app_status['total_searches']}</p>
-            <p><strong>Последний пинг:</strong> {last_ping}</p>
-            <p><strong>Статус:</strong> 🟢 Работает нормально</p>
-            <p><strong>Авто-пинг:</strong> 🔁 Активен (каждые 2 минуты)</p>
-        </div>
-        
-        <div style="background: #f8fafc; padding: 20px; border-radius: 10px; margin: 20px 0;">
-            <h4>📊 Статистика само-пинга:</h4>
-            <p>Система автоматически отправляет запросы самой себе чтобы оставаться активной на Render.</p>
-            <p><strong>Частота пинга:</strong> Каждые 2 минуты (полный пинг) + каждые 30 секунд (легкий пинг)</p>
-            <p><strong>Цель:</strong> Предотвратить переход в спящий режим на бесплатном хостинге Render</p>
-        </div>
-        
-        <div style="text-align: center;">
-            <a href="/?status=true" style="background: #6366f1; color: white; padding: 12px 30px; 
-                             text-decoration: none; border-radius: 25px; display: inline-block; margin: 10px;">
-                На главную
-            </a>
-            <a href="/search?q=python&status=true" style="background: #10b981; color: white; padding: 12px 30px; 
-                                         text-decoration: none; border-radius: 25px; display: inline-block; margin: 10px;">
-                Тестовый поиск
-            </a>
-            <a href="/health" style="background: #f59e0b; color: white; padding: 12px 30px; 
-                             text-decoration: none; border-radius: 25px; display: inline-block; margin: 10px;">
-                Проверить здоровье
-            </a>
-        </div>
-    </div>
-    '''
-    return status_html
-
-@app.route('/about')
-def about():
-    """Страница о системе"""
-    about_html = '''
-    <div style="max-width: 800px; margin: 0 auto; padding: 40px; font-family: Arial, sans-serif;">
-        <h1 style="color: #6366f1; text-align: center;">О AriOS Search</h1>
-        
-        <div style="background: #f8fafc; padding: 30px; border-radius: 15px; margin: 20px 0;">
-            <h3>🚀 Реальная поисковая система</h3>
-            <p>AriOS - это независимая поисковая система, которая находит реальные результаты из интернета.</p>
-            
-            <h3>🔍 Что умеет AriOS:</h3>
-            <ul>
-                <li><strong>Поиск веб-сайтов</strong> - настоящие страницы из интернета</li>
-                <li><strong>Поиск изображений</strong> - фотографии и картинки</li>
-                <li><strong>Поиск видео</strong> - ролики с YouTube</li>
-                <li><strong>Умный поиск</strong> - подсветка результатов</li>
-            </ul>
-            
-            <h3>⚡ Всегда активна</h3>
-            <p>Система автоматически поддерживает свою активность на Render, поэтому всегда готова к работе.</p>
-        </div>
-        
-        <div style="text-align: center;">
-            <a href="/" style="background: #6366f1; color: white; padding: 12px 30px; 
-                             text-decoration: none; border-radius: 25px; display: inline-block;">
-                Начать поиск
-            </a>
-        </div>
-    </div>
-    '''
-    return about_html
-
-@app.route('/search/<path:query>')
-def direct_search(query):
-    """Прямой поиск через путь /search/запрос"""
-    try:
-        decoded_query = unquote_plus(query)
-        return redirect(f'/search?q={quote_plus(decoded_query)}')
-    except:
-        return redirect('/')
+# Остальные маршруты остаются без изменений...
 
 # Запускаем само-пинг при старте приложения
 start_background_scheduler()
