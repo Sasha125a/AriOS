@@ -15,6 +15,7 @@ import hashlib
 import logging
 from collections import defaultdict
 import io
+import queue
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -29,7 +30,9 @@ app_status = {
     'start_time': time.time(),
     'is_active': True,
     'indexed_images': 0,
-    'processed_pages': 0
+    'processed_pages': 0,
+    'active_threads': 0,
+    'max_threads': 0
 }
 
 # Глобальный индекс изображений
@@ -54,17 +57,7 @@ class ImageAnalyzer:
             'храм', 'замок', 'дворец', 'мост', 'фонтан', 'памятник', 'скульптура',
             'водопад', 'каньон', 'вулкан', 'остров', 'пещера', 'джунгли', 'саванна',
             'тропики', 'арктика', 'побережье', 'бухта', 'залив', 'пролив', 'океан',
-            'подводный', 'космос', 'планета', 'звезды', 'галактика', 'туманность',
-            'сельская местность', 'метро', 'трамвай', 'автобус', 'такси', 'поезд',
-            'аэропорт', 'морской порт', 'рынок', 'торговый центр', 'кинотеатр', 'театр',
-            'опера', 'балет', 'концерт', 'фестиваль', 'карнавал', 'парад', 'митинг',
-            'стройка', 'фабрика', 'завод', 'ферма', 'пасека', 'виноградник', 'сад',
-            'оранжерея', 'зимний сад', 'аквапарк', 'луна-парк', 'зоопарк', 'сафари-парк',
-            'ботанический сад', 'дендрарий', 'заповедник', 'национальный парк', 'заказник',
-            'альпийские луга', 'тайга', 'степь', 'прерия', 'сахара', 'горизонт', 'рассвет',
-            'закат', 'полдень', 'полночь', 'сумерки', 'радуга', 'гроза', 'ураган', 'торнадо',
-            'цунами', 'землетрясение', 'извержение', 'лавовый поток', 'геотермальный источник',
-            'горячий источник', 'гейзер', 'ледник', 'айсберг', 'полярное сияние', 'мираж'
+            'подводный', 'космос', 'планета', 'звезды', 'галактика', 'туманность'
         ]
         
         self.color_names = {
@@ -75,10 +68,7 @@ class ImageAnalyzer:
             'bronze': 'бронзовый', 'beige': 'бежевый', 'turquoise': 'бирюзовый',
             'violet': 'фиолетовый', 'indigo': 'индиго', 'maroon': 'бордовый',
             'navy': 'темно-синий', 'teal': 'сине-зеленый', 'olive': 'оливковый',
-            'lime': 'лаймовый', 'cyan': 'голубой', 'magenta': 'пурпурный',
-            'coral': 'коралловый', 'salmon': 'лососевый', 'lavender': 'лавандовый',
-            'plum': 'сливовый', 'azure': 'лазурный', 'ivory': 'слоновая кость',
-            'charcoal': 'угольный', 'crimson': 'малиновый', 'amber': 'янтарный'
+            'lime': 'лаймовый', 'cyan': 'голубой', 'magenta': 'пурпурный'
         }
         
         # Расширенный словарь объектов до 2000+ слов
@@ -96,69 +86,15 @@ class ImageAnalyzer:
             'snake': 'змея', 'lizard': 'ящерица', 'frog': 'лягушка', 'turtle': 'черепаха',
             'crocodile': 'крокодил', 'eagle': 'орел', 'hawk': 'ястреб', 'owl': 'сова',
             'parrot': 'попугай', 'swan': 'лебедь', 'duck': 'утка', 'chicken': 'курица',
-            'rooster': 'петух', 'peacock': 'павлин', 'flamingo': 'фламинго', 'pigeon': 'голубь',
-            'sparrow': 'воробей', 'crow': 'ворона', 'seagull': 'чайка', 'woodpecker': 'дятел',
-            'nightingale': 'соловей', 'canary': 'канарейка', 'hummingbird': 'колибри',
-            'bat': 'летучая мышь', 'rhinoceros': 'носорог', 'hippopotamus': 'бегемот',
-            'cheetah': 'гепард', 'leopard': 'леопард', 'panther': 'пантера', 'lynx': 'рысь',
-            'camel': 'верблюд', 'llama': 'лама', 'alpaca': 'альпака', 'buffalo': 'буйвол',
-            'bison': 'бизон', 'moose': 'лось', 'elk': 'лось', 'reindeer': 'северный олень',
-            'seal': 'тюлень', 'walrus': 'морж', 'otter': 'выдра', 'beaver': 'бобр',
-            'mole': 'крот', 'hamster': 'хомяк', 'guinea pig': 'морская свинка',
-            'chinchilla': 'шиншилла', 'ferret': 'хорек', 'weasel': 'ласка',
-            'badger': 'барсук', 'skunk': 'скунс', 'porcupine': 'дикобраз',
-            'armadillo': 'броненосец', 'sloth': 'ленивец', 'anteater': 'муравьед',
-            'platypus': 'утконос', 'kangaroo rat': 'кенгуровая крыса', 'wombat': 'вомбат',
-            'tasmanian devil': 'тасманийский дьявол', 'komodo dragon': 'комодский варан',
-            'chameleon': 'хамелеон', 'iguana': 'игуана', 'gecko': 'геккон',
-            'salamander': 'саламандра', 'newt': 'тритон', 'axolotl': 'аксолотль',
-            'toad': 'жаба', 'tadpole': 'головастик', 'crab': 'краб', 'lobster': 'лобстер',
-            'shrimp': 'креветка', 'prawn': 'креветка', 'crayfish': 'рак', 'scorpion': 'скорпион',
-            'centipede': 'сороконожка', 'millipede': 'многоножка', 'grasshopper': 'кузнечик',
-            'cricket': 'сверчок', 'ladybug': 'божья коровка', 'beetle': 'жук',
-            'dragonfly': 'стрекоза', 'damselfly': 'стрекоза', 'mosquito': 'комар',
-            'fly': 'муха', 'wasp': 'оса', 'hornet': 'шершень', 'bumblebee': 'шмель',
-            'caterpillar': 'гусеница', 'silkworm': 'шелкопряд', 'earthworm': 'дождевой червь',
-            'snail': 'улитка', 'slug': 'слизень', 'clam': 'моллюск', 'oyster': 'устрица',
-            'mussel': 'мидия', 'squid': 'кальмар', 'cuttlefish': 'каракатица',
-            'starfish': 'морская звезда', 'sea urchin': 'морской еж', 'sea cucumber': 'морской огурец',
-            'coral': 'коралл', 'anemone': 'актиния', 'jellyfish': 'медуза',
-
+            'rooster': 'петух', 'peacock': 'павлин', 'flamingo': 'фламинго',
+            
             # Транспорт (150+ слов)
             'car': 'машина', 'bus': 'автобус', 'truck': 'грузовик', 'motorcycle': 'мотоцикл',
             'bicycle': 'велосипед', 'train': 'поезд', 'airplane': 'самолет', 'helicopter': 'вертолет',
             'ship': 'корабль', 'boat': 'лодка', 'yacht': 'яхта', 'submarine': 'подводная лодка',
             'rocket': 'ракета', 'spaceship': 'космический корабль', 'taxi': 'такси',
             'ambulance': 'скорая помощь', 'fire truck': 'пожарная машина', 'police car': 'полицейская машина',
-            'minivan': 'минивэн', 'suv': 'внедорожник', 'sedan': 'седан', 'coupe': 'купе',
-            'convertible': 'кабриолет', 'limousine': 'лимузин', 'tractor': 'трактор',
-            'bulldozer': 'бульдозер', 'excavator': 'экскаватор', 'crane': 'кран',
-            'forklift': 'погрузчик', 'tank': 'танк', 'jeep': 'джип', 'scooter': 'самокат',
-            'skateboard': 'скейтборд', 'rollerblades': 'ролики', 'snowmobile': 'снегоход',
-            'jet ski': 'гидроцикл', 'speedboat': 'катер', 'sailboat': 'парусник',
-            'canoe': 'каноэ', 'kayak': 'каяк', 'raft': 'плот', 'gondola': 'гондола',
-            'ferry': 'паром', 'cruise ship': 'круизный лайнер', 'container ship': 'контейнеровоз',
-            'tanker': 'танкер', 'submarine': 'подлодка', 'airship': 'дирижабль',
-            'hot air balloon': 'воздушный шар', 'glider': 'планер', 'fighter jet': 'истребитель',
-            'bomber': 'бомбардировщик', 'cargo plane': 'грузовой самолет', 'seaplane': 'гидросамолет',
-            'space shuttle': 'космический шаттл', 'satellite': 'спутник', 'rover': 'ровер',
-            'metro': 'метро', 'tram': 'трамвай', 'trolleybus': 'троллейбус', 'monorail': 'монорельс',
-            'funicular': 'фуникулер', 'cable car': 'канатная дорога', 'locomotive': 'локомотив',
-            'high-speed train': 'скоростной поезд', 'freight train': 'грузовой поезд',
-            'bullet train': 'поезд-пуля', 'steam engine': 'паровоз', 'carriage': 'вагон',
-            'caravan': 'автодом', 'trailer': 'прицеп', 'semi-trailer': 'полуприцеп',
-            'dump truck': 'самосвал', 'concrete mixer': 'бетономешалка', 'tow truck': 'эвакуатор',
-            'garbage truck': 'мусоровоз', 'cement truck': 'цементовоз', 'fire engine': 'пожарная машина',
-            'police motorcycle': 'полицейский мотоцикл', 'ambulance motorcycle': 'мотоцикл скорой помощи',
-            'armored car': 'броневик', 'limousine': 'лимузин', 'race car': 'гоночный автомобиль',
-            'formula 1': 'формула 1', 'nascar': 'наскар', 'rally car': 'раллийный автомобиль',
-            'off-road vehicle': 'внедорожник', 'atv': 'квадроцикл', 'snowplow': 'снегоочиститель',
-            'street sweeper': 'подметальная машина', 'tram': 'трамвай', 'subway': 'метро',
-            'light rail': 'легкое метро', 'commuter train': 'пригородный поезд',
-            'high-speed rail': 'скоростная железная дорога', 'maglev': 'маглев',
-            'space station': 'космическая станция', 'space probe': 'космический зонд',
-            'lunar module': 'лунный модуль', 'mars rover': 'марсоход',
-
+            
             # Еда и напитки (200+ слов)
             'apple': 'яблоко', 'banana': 'банан', 'orange': 'апельсин', 'grape': 'виноград',
             'strawberry': 'клубника', 'watermelon': 'арбуз', 'melon': 'дыня', 'pineapple': 'ананас',
@@ -172,40 +108,8 @@ class ImageAnalyzer:
             'fish': 'рыба', 'chicken': 'курица', 'beef': 'говядина', 'pork': 'свинина',
             'chocolate': 'шоколад', 'cake': 'торт', 'ice cream': 'мороженое', 'cookie': 'печенье',
             'coffee': 'кофе', 'tea': 'чай', 'juice': 'сок', 'wine': 'вино',
-            'beer': 'пиво', 'water': 'вода', 'soda': 'газировка', 'smoothie': 'смузи',
-            'yogurt': 'йогурт', 'butter': 'масло', 'oil': 'масло', 'salt': 'соль',
-            'sugar': 'сахар', 'honey': 'мед', 'jam': 'джем', 'sauce': 'соус',
-            'soup': 'суп', 'stew': 'рагу', 'roast': 'жаркое', 'grill': 'гриль',
-            'barbecue': 'барбекю', 'salmon': 'лосось', 'tuna': 'тунец', 'shrimp': 'креветка',
-            'lobster': 'омар', 'crab': 'краб', 'mussel': 'мидия', 'oyster': 'устрица',
-            'caviar': 'икра', 'pasta': 'паста', 'spaghetti': 'спагетти', 'lasagna': 'лазанья',
-            'ravioli': 'равиоли', 'risotto': 'ризотто', 'paella': 'паэлья', 'curry': 'карри',
-            'taco': 'тако', 'burrito': 'буррито', 'quesadilla': 'кесадилья', 'salsa': 'сальса',
-            'guacamole': 'гуакамоле', 'hummus': 'хумус', 'falafel': 'фалафель', 'kebab': 'кебаб',
-            'sausage': 'колбаса', 'ham': 'ветчина', 'bacon': 'бекон', 'salami': 'салями',
-            'pancake': 'блин', 'waffle': 'вафля', 'croissant': 'круассан', 'baguette': 'багет',
-            'donut': 'пончик', 'muffin': 'маффин', 'cupcake': 'капкейк', 'pie': 'пирог',
-            'tart': 'тарт', 'pudding': 'пудинг', 'custard': 'заварной крем', 'whipped cream': 'взбитые сливки',
-            'caramel': 'карамель', 'nougat': 'нуга', 'marzipan': 'марципан', 'gingerbread': 'пряник',
-            'candy': 'конфета', 'lollipop': 'леденец', 'gum': 'жвачка', 'popcorn': 'попкорн',
-            'chips': 'чипсы', 'nuts': 'орехи', 'seeds': 'семечки', 'dried fruit': 'сухофрукты',
-            'cereal': 'хлопья', 'oatmeal': 'овсянка', 'granola': 'мюсли', 'toast': 'тост',
-            'omelette': 'омлет', 'scrambled eggs': 'яичница', 'fried eggs': 'яичница',
-            'boiled eggs': 'варёные яйца', 'poached eggs': 'яйца пашот', 'quiche': 'киш',
-            'fondue': 'фондю', 'raclette': 'раклет', 'tapas': 'тапас', 'antipasto': 'антипасто',
-            'bruschetta': 'брускетта', 'caprese': 'капрезе', 'prosciutto': 'прошутто',
-            'mozzarella': 'моцарелла', 'parmesan': 'пармезан', 'cheddar': 'чеддер',
-            'brie': 'бри', 'camembert': 'камамбер', 'gouda': 'гауда', 'feta': 'фета',
-            'blue cheese': 'голубой сыр', 'yogurt': 'йогурт', 'kefir': 'кефир', 'buttermilk': 'пахта',
-            'sour cream': 'сметана', 'cream cheese': 'сливочный сыр', 'cottage cheese': 'творог',
-            'ricotta': 'рикотта', 'mayonnaise': 'майонез', 'ketchup': 'кетчуп', 'mustard': 'горчица',
-            'soy sauce': 'соевый соус', 'vinegar': 'уксус', 'olive oil': 'оливковое масло',
-            'sesame oil': 'кунжутное масло', 'truffle oil': 'трюфельное масло', 'vanilla': 'ваниль',
-            'cinnamon': 'корица', 'nutmeg': 'мускатный орех', 'ginger': 'имбирь',
-            'turmeric': 'куркума', 'paprika': 'паприка', 'saffron': 'шафран', 'basil': 'базилик',
-            'parsley': 'петрушка', 'cilantro': 'кинза', 'mint': 'мята', 'rosemary': 'розмарин',
-            'thyme': 'тимьян', 'oregano': 'орегано', 'dill': 'укроп', 'chives': 'лук-шнитт',
-
+            'beer': 'пиво', 'water': 'вода',
+            
             # Природа и пейзажи (200+ слов)
             'tree': 'дерево', 'flower': 'цветок', 'grass': 'трава', 'leaf': 'лист',
             'forest': 'лес', 'mountain': 'гора', 'river': 'река', 'lake': 'озеро',
@@ -214,33 +118,8 @@ class ImageAnalyzer:
             'star': 'звезда', 'rain': 'дождь', 'snow': 'снег', 'wind': 'ветер',
             'storm': 'буря', 'lightning': 'молния', 'rainbow': 'радуга', 'sunset': 'закат',
             'sunrise': 'восход', 'horizon': 'горизонт', 'valley': 'долина', 'canyon': 'каньон',
-            'waterfall': 'водопад', 'volcano': 'вулкан', 'island': 'остров', 'cave': 'пещера',
-            'cliff': 'утес', 'hill': 'холм', 'meadow': 'луг', 'field': 'поле',
-            'garden': 'сад', 'park': 'парк', 'jungle': 'джунгли', 'swamp': 'болото',
-            'marsh': 'болото', 'pond': 'пруд', 'stream': 'ручей', 'brook': 'ручей',
-            'spring': 'родник', 'geyser': 'гейзер', 'glacier': 'ледник', 'iceberg': 'айсберг',
-            'fjord': 'фьорд', 'bay': 'бухта', 'gulf': 'залив', 'strait': 'пролив',
-            'peninsula': 'полуостров', 'archipelago': 'архипелаг', 'atoll': 'атолл',
-            'oasis': 'оазис', 'dune': 'дюна', 'savanna': 'саванна', 'prairie': 'прерия',
-            'tundra': 'тундра', 'taiga': 'тайга', 'rainforest': 'тропический лес',
-            'wetland': 'водно-болотные угодья', 'estuary': 'устье реки', 'delta': 'дельта',
-            'coast': 'побережье', 'shore': 'берег', 'beach': 'пляж', 'lagoon': 'лагуна',
-            'reef': 'риф', 'coral reef': 'коралловый риф', 'kelp forest': 'водорослевый лес',
-            'mangrove': 'мангровые заросли', 'bamboo forest': 'бамбуковый лес',
-            'cherry blossom': 'цветение сакуры', 'maple tree': 'клен', 'oak tree': 'дуб',
-            'pine tree': 'сосна', 'birch tree': 'береза', 'willow tree': 'ива',
-            'palm tree': 'пальма', 'cactus': 'кактус', 'succulent': 'суккулент',
-            'fern': 'папоротник', 'moss': 'мох', 'lichen': 'лишайник', 'mushroom': 'гриб',
-            'rose': 'роза', 'tulip': 'тюльпан', 'lily': 'лилия', 'orchid': 'орхидея',
-            'sunflower': 'подсолнух', 'daisy': 'маргаритка', 'violet': 'фиалка',
-            'lavender': 'лаванда', 'jasmine': 'жасмин', 'lotus': 'лотос',
-            'cherry blossom': 'цветение сакуры', 'magnolia': 'магнолия',
-            'peony': 'пион', 'hydrangea': 'гортензия', 'carnation': 'гвоздика',
-            'daffodil': 'нарцисс', 'iris': 'ирис', 'poppy': 'мак',
-            'bluebell': 'колокольчик', 'forget-me-not': 'незабудка',
-            'buttercup': 'лютик', 'dandelion': 'одуванчик', 'thistle': 'чертополох',
-            'clover': 'клевер', 'heather': 'вереск', 'broom': 'ракитник',
-
+            'waterfall': ' водопад', 'volcano': 'вулкан', 'island': 'остров', 'cave': 'пещера',
+            
             # Люди и деятельность (150+ слов)
             'person': 'человек', 'man': 'мужчина', 'woman': 'женщина', 'child': 'ребенок',
             'baby': 'младенец', 'family': 'семья', 'friend': 'друг', 'couple': 'пара',
@@ -248,148 +127,27 @@ class ImageAnalyzer:
             'athlete': 'атлет', 'dancer': 'танцор', 'musician': 'музыкант', 'artist': 'художник',
             'cook': 'повар', 'farmer': 'фермер', 'soldier': 'солдат', 'police': 'полиция',
             'firefighter': 'пожарный', 'pilot': 'пилот', 'driver': 'водитель', 'sailor': 'моряк',
-            'engineer': 'инженер', 'scientist': 'ученый', 'programmer': 'программист',
-            'designer': 'дизайнер', 'architect': 'архитектор', 'builder': 'строитель',
-            'electrician': 'электрик', 'plumber': 'сантехник', 'mechanic': 'механик',
-            'driver': 'водитель', 'pilot': 'пилот', 'captain': 'капитан', 'chef': 'шеф-повар',
-            'waiter': 'официант', 'manager': 'менеджер', 'director': 'директор',
-            'accountant': 'бухгалтер', 'lawyer': 'юрист', 'judge': 'судья',
-            'politician': 'политик', 'journalist': 'журналист', 'reporter': 'репортер',
-            'writer': 'писатель', 'poet': 'поэт', 'actor': 'актер', 'actress': 'актриса',
-            'singer': 'певец', 'dancer': 'танцор', 'painter': 'художник', 'sculptor': 'скульптор',
-            'photographer': 'фотограф', 'filmmaker': 'режиссер', 'producer': 'продюсер',
-            'composer': 'композитор', 'conductor': 'дирижер', 'musician': 'музыкант',
-            'doctor': 'врач', 'nurse': 'медсестра', 'dentist': 'стоматолог',
-            'psychologist': 'психолог', 'therapist': 'терапевт', 'surgeon': 'хирург',
-            'veterinarian': 'ветеринар', 'pharmacist': 'фармацевт', 'paramedic': 'парамедик',
-            'athlete': 'спортсмен', 'coach': 'тренер', 'referee': 'судья',
-            'gymnast': 'гимнаст', 'swimmer': 'пловец', 'runner': 'бегун',
-            'cyclist': 'велосипедист', 'boxer': 'боксер', 'wrestler': 'борец',
-            'martial artist': 'мастер боевых искусств', 'yogi': 'йог',
-            'meditator': 'медитирующий', 'student': 'ученик', 'teacher': 'преподаватель',
-            'professor': 'профессор', 'researcher': 'исследователь', 'scholar': 'ученый',
-            'librarian': 'библиотекарь', 'archivist': 'архивариус', 'curator': 'куратор',
-            'farmer': 'фермер', 'gardener': 'садовник', 'beekeeper': 'пчеловод',
-            'fisherman': 'рыбак', 'hunter': 'охотник', 'ranger': 'рейнджер',
-            'conservationist': 'эколог', 'activist': 'активист', 'volunteer': 'волонтер',
-            'traveler': 'путешественник', 'explorer': 'исследователь', 'adventurer': 'авантюрист',
-            'tourist': 'турист', 'guide': 'гид', 'translator': 'переводчик',
-            'interpreter': 'переводчик', 'diplomat': 'дипломат', 'ambassador': 'посол',
-            'entrepreneur': 'предприниматель', 'businessman': 'бизнесмен',
-            'investor': 'инвестор', 'banker': 'банкир', 'trader': 'трейдер',
-            'analyst': 'аналитик', 'consultant': 'консультант', 'specialist': 'специалист',
-            'expert': 'эксперт', 'professional': 'профессионал', 'employee': 'сотрудник',
-            'employer': 'работодатель', 'worker': 'работник', 'laborer': 'рабочий',
-            'craftsman': 'ремесленник', 'artisan': 'ремесленник', 'blacksmith': 'кузнец',
-            'carpenter': 'плотник', 'mason': 'каменщик', 'tailor': 'портной',
-            'jeweler': 'ювелир', 'potter': 'гончар', 'weaver': 'ткач',
-            'baker': 'пекарь', 'butcher': 'мясник', 'barber': 'парикмахер',
-            'hairdresser': 'парикмахер', 'stylist': 'стилист', 'makeup artist': 'визажист',
-            'model': 'модель', 'influencer': 'инфлюенсер', 'blogger': 'блоггер',
-            'youtuber': 'ютубер', 'streamer': 'стример', 'gamer': 'геймер',
-
+            
             # Спорт (100+ слов)
             'football': 'футбол', 'basketball': 'баскетбол', 'tennis': 'теннис', 'volleyball': 'волейбол',
             'baseball': 'бейсбол', 'hockey': 'хоккей', 'golf': 'гольф', 'swimming': 'плавание',
             'running': 'бег', 'cycling': 'велоспорт', 'boxing': 'бокс', 'martial arts': 'боевые искусства',
             'skiing': 'лыжи', 'snowboarding': 'сноуборд', 'surfing': 'серфинг', 'skateboarding': 'скейтбординг',
-            'gymnastics': 'гимнастика', 'athletics': 'легкая атлетика', 'weightlifting': 'тяжелая атлетика',
-            'wrestling': 'борьба', 'judo': 'дзюдо', 'karate': 'каратэ', 'taekwondo': 'тхэквондо',
-            'fencing': 'фехтование', 'archery': 'стрельба из лука', 'shooting': 'стрельба',
-            'horse racing': 'скачки', 'equestrian': 'конный спорт', 'polo': 'поло',
-            'cricket': 'крикет', 'rugby': 'регби', 'handball': 'гандбол', 'badminton': 'бадминтон',
-            'table tennis': 'настольный теннис', 'squash': 'сквош', 'racquetball': 'ракетбол',
-            'lacrosse': 'лакросс', 'water polo': 'водное поло', 'synchronized swimming': 'синхронное плавание',
-            'diving': 'дайвинг', 'sailing': 'парусный спорт', 'rowing': 'гребля', 'canoeing': 'каноэ',
-            'kayaking': 'каякинг', 'rafting': 'рафтинг', 'climbing': 'скалолазание', 'mountaineering': 'альпинизм',
-            'hiking': 'пеший туризм', 'trekking': 'треккинг', 'orienteering': 'ориентирование',
-            'parkour': 'паркур', 'free running': 'фриран', 'breakdancing': 'брейк-данс',
-            'dance sport': 'танцевальный спорт', 'figure skating': 'фигурное катание',
-            'speed skating': 'конькобежный спорт', 'ice hockey': 'хоккей с шайбой',
-            'curling': 'керлинг', 'bobsleigh': 'бобслей', 'luge': 'санный спорт',
-            'skeleton': 'скелетон', 'biathlon': 'биатлон', 'cross-country skiing': 'лыжные гонки',
-            'ski jumping': 'прыжки с трамплина', 'nordic combined': 'лыжное двоеборье',
-            'alpine skiing': 'горнолыжный спорт', 'freestyle skiing': 'фристайл',
-            'snowboarding': 'сноубординг', 'motorsport': 'мотоспорт', 'formula 1': 'формула 1',
-            'nascar': 'наскар', 'rally': 'ралли', 'motorcycle racing': 'мотогонки',
-            'cycling': 'велоспорт', 'tour de france': 'тур де франс', 'triathlon': 'триатлон',
-            'ironman': 'айронмен', 'decathlon': 'десятиборье', 'heptathlon': 'семиборье',
-            'marathon': 'марафон', 'sprint': 'спринт', 'hurdles': 'барьерный бег',
-            'relay': 'эстафета', 'long jump': 'прыжки в длину', 'high jump': 'прыжки в высоту',
-            'pole vault': 'прыжки с шестом', 'shot put': 'толкание ядра', 'discus': 'метание диска',
-            'javelin': 'метание копья', 'hammer throw': 'метание молота',
-
+            
             # Технологии (150+ слов)
             'computer': 'компьютер', 'laptop': 'ноутбук', 'phone': 'телефон', 'tablet': 'планшет',
             'camera': 'камера', 'tv': 'телевизор', 'radio': 'радио', 'headphones': 'наушники',
             'microphone': 'микрофон', 'speaker': 'колонка', 'keyboard': 'клавиатура', 'mouse': 'мышь',
             'monitor': 'монитор', 'printer': 'принтер', 'router': 'роутер', 'server': 'сервер',
             'robot': 'робот', 'drone': 'дрон', 'satellite': 'спутник', 'microchip': 'микрочип',
-            'processor': 'процессор', 'memory': 'память', 'storage': 'хранилище', 'hard drive': 'жесткий диск',
-            'ssd': 'твердотельный накопитель', 'graphics card': 'видеокарта', 'motherboard': 'материнская плата',
-            'power supply': 'блок питания', 'cooling system': 'система охлаждения', 'fan': 'вентилятор',
-            'webcam': 'веб-камера', 'scanner': 'сканер', 'projector': 'проектор', 'smartwatch': 'умные часы',
-            'fitness tracker': 'фитнес-трекер', 'smartphone': 'смартфон', 'tablet': 'планшет',
-            'ebook reader': 'электронная книга', 'gps': 'gps', 'navigation system': 'навигационная система',
-            'car electronics': 'автоэлектроника', 'home automation': 'умный дом', 'smart home': 'умный дом',
-            'iot': 'интернет вещей', 'wearable technology': 'носимая электроника', 'virtual reality': 'виртуальная реальность',
-            'augmented reality': 'дополненная реальность', 'mixed reality': 'смешанная реальность',
-            'ai': 'искусственный интеллект', 'machine learning': 'машинное обучение', 'neural network': 'нейронная сеть',
-            'blockchain': 'блокчейн', 'cryptocurrency': 'криптовалюта', 'bitcoin': 'биткоин',
-            'ethereum': 'эфириум', 'nft': 'нфт', 'metaverse': 'метавселенная',
-            'cloud computing': 'облачные вычисления', 'big data': 'большие данные', 'data science': 'наука о данных',
-            'cybersecurity': 'кибербезопасность', 'encryption': 'шифрование', 'firewall': 'брандмауэр',
-            'software': 'программное обеспечение', 'app': 'приложение', 'website': 'веб-сайт',
-            'web development': 'веб-разработка', 'programming': 'программирование', 'coding': 'кодирование',
-            'algorithm': 'алгоритм', 'data structure': 'структура данных', 'database': 'база данных',
-            'sql': 'sql', 'nosql': 'nosql', 'api': 'api', 'framework': 'фреймворк',
-            'library': 'библиотека', 'sdk': 'sdk', 'ide': 'ide', 'compiler': 'компилятор',
-            'operating system': 'операционная система', 'windows': 'windows', 'linux': 'linux',
-            'macos': 'macos', 'android': 'android', 'ios': 'ios', 'chrome os': 'chrome os',
-            'browser': 'браузер', 'search engine': 'поисковая система', 'social media': 'социальные сети',
-            'streaming': 'стриминг', 'podcast': 'подкаст', 'blog': 'блог', 'forum': 'форум',
-            'e-commerce': 'электронная коммерция', 'online shopping': 'онлайн-шоппинг', 'digital payment': 'цифровой платеж',
-            'mobile payment': 'мобильный платеж', 'contactless payment': 'бесконтактный платеж',
-            'biometrics': 'биометрия', 'facial recognition': 'распознавание лиц', 'fingerprint': 'отпечаток пальца',
-            'voice recognition': 'распознавание голоса', 'quantum computing': 'квантовые вычисления',
-            'nanotechnology': 'нанотехнология', 'biotechnology': 'биотехнология', 'genetic engineering': 'генная инженерия',
-            '3d printing': '3d-печать', 'robotics': 'робототехника', 'automation': 'автоматизация',
-            'self-driving car': 'беспилотный автомобиль', 'electric vehicle': 'электромобиль',
-            'renewable energy': 'возобновляемая энергия', 'solar power': 'солнечная энергия',
-            'wind power': 'ветровая энергия', 'hydroelectric power': 'гидроэнергетика',
-            'nuclear power': 'ядерная энергия', 'battery': 'батарея', 'charger': 'зарядное устройство',
-            'wireless charging': 'беспроводная зарядка', 'bluetooth': 'bluetooth', 'wifi': 'wifi',
-            '5g': '5g', '6g': '6g', 'internet': 'интернет', 'broadband': 'широкополосный доступ',
-            'fiber optic': 'оптоволокно', 'satellite internet': 'спутниковый интернет',
-
+            
             # Одежда и мода (100+ слов)
             'shirt': 'рубашка', 'pants': 'брюки', 'dress': 'платье', 'skirt': 'юбка',
             'jacket': 'куртка', 'coat': 'пальто', 'hat': 'шляпа', 'shoes': 'обувь',
             'sneakers': 'кроссовки', 'boots': 'ботинки', 'sandals': 'сандалии', 'socks': 'носки',
             'underwear': 'нижнее белье', 'gloves': 'перчатки', 'scarf': 'шарф', 'glasses': 'очки',
             'jewelry': 'украшения', 'ring': 'кольцо', 'necklace': 'ожерелье', 'watch': 'часы',
-            'bracelet': 'браслет', 'earrings': 'серьги', 'brooch': 'брошь', 'tie': 'галстук',
-            'bow tie': 'бабочка', 'belt': 'ремень', 'wallet': 'кошелек', 'bag': 'сумка',
-            'backpack': 'рюкзак', 'purse': 'кошелек', 'clutch': 'клатч', 'tote bag': 'сумка-тоут',
-            'suit': 'костюм', 'tuxedo': 'смокинг', 'uniform': 'униформа', 'costume': 'костюм',
-            'swimsuit': 'купальник', 'bikini': 'бикини', 'trunks': 'плавки', 'robe': 'халат',
-            'pajamas': 'пижама', 'nightgown': 'ночная рубашка', 'lingerie': 'белье',
-            'stockings': 'чулки', 'tights': 'колготки', 'leggings': 'леггинсы', 'jeans': 'джинсы',
-            'shorts': 'шорты', 't-shirt': 'футболка', 'blouse': 'блузка', 'sweater': 'свитер',
-            'hoodie': 'толстовка', 'cardigan': 'кардиган', 'vest': 'жилет', 'overalls': 'комбинезон',
-            'raincoat': 'дождевик', 'windbreaker': 'ветровка', 'parka': 'парка', 'poncho': 'пончо',
-            'kimono': 'кимоно', 'sari': 'сари', 'hanbok': 'ханбок', 'cheongsam': 'ципао',
-            'dirndl': 'дирндль', 'lederhosen': 'ледерхозен', 'kilt': 'килт', 'burqa': 'бурка',
-            'hijab': 'хиджаб', 'turban': 'тюрбан', 'yarmulke': 'ермолка', 'veil': 'вуаль',
-            'crown': 'корона', 'tiara': 'тиара', 'wig': 'парик', 'hair accessory': 'аксессуар для волос',
-            'hairpin': 'заколка', 'headband': 'повязка для волос', 'fashion': 'мода',
-            'style': 'стиль', 'trend': 'тренд', 'designer': 'дизайнер', 'model': 'модель',
-            'runway': 'подиум', 'fashion show': 'показ мод', 'couture': 'от кутюр',
-            'haute couture': 'высокая мода', 'ready-to-wear': 'готовая одежда',
-            'accessory': 'аксессуар', 'footwear': 'обувь', 'headwear': 'головной убор',
-            'eyewear': 'очки', 'jewelry': 'ювелирные изделия', 'perfume': 'парфюм',
-            'cosmetics': 'косметика', 'makeup': 'макияж', 'skincare': 'уход за кожей',
-
+            
             # Дом и интерьер (150+ слов)
             'house': 'дом', 'apartment': 'квартира', 'room': 'комната', 'kitchen': 'кухня',
             'bedroom': 'спальня', 'bathroom': 'ванная', 'living room': 'гостиная', 'office': 'офис',
@@ -397,204 +155,41 @@ class ImageAnalyzer:
             'chair': 'стул', 'table': 'стол', 'bed': 'кровать', 'sofa': 'диван',
             'cabinet': 'шкаф', 'shelf': 'полка', 'mirror': 'зеркало', 'lamp': 'лампа',
             'carpet': 'ковер', 'curtain': 'штора', 'painting': 'картина', 'vase': 'ваза',
-            'clock': 'часы', 'candle': 'свеча', 'pillow': 'подушка', 'blanket': 'одеяло',
-            'rug': 'коврик', 'wallpaper': 'обои', 'tile': 'плитка', 'floor': 'пол',
-            'ceiling': 'потолок', 'wall': 'стена', 'staircase': 'лестница', 'fireplace': 'камин',
-            'bookshelf': 'книжная полка', 'desk': 'письменный стол', 'dresser': 'комод',
-            'wardrobe': 'гардероб', 'closet': 'шкаф', 'cupboard': 'буфет', 'drawer': 'ящик',
-            'counter': 'стойка', 'island': 'остров', 'sink': 'раковина', 'faucet': 'кран',
-            'refrigerator': 'холодильник', 'oven': 'духовка', 'stove': 'плита', 'microwave': 'микроволновка',
-            'dishwasher': 'посудомоечная машина', 'toaster': 'тостер', 'blender': 'блендер',
-            'coffee maker': 'кофеварка', 'kettle': 'чайник', 'cutting board': 'разделочная доска',
-            'utensil': 'столовый прибор', 'plate': 'тарелка', 'bowl': 'миска', 'cup': 'чашка',
-            'glass': 'стакан', 'fork': 'вилка', 'knife': 'нож', 'spoon': 'ложка',
-            'napkin': 'салфетка', 'tablecloth': 'скатерть', 'towel': 'полотенце', 'shower': 'душ',
-            'bathtub': 'ванна', 'toilet': 'туалет', 'sink': 'умывальник', 'mirror': 'зеркало',
-            'cabinet': 'шкафчик', 'shelf': 'полка', 'laundry': 'прачечная', 'washing machine': 'стиральная машина',
-            'dryer': 'сушилка', 'iron': 'утюг', 'ironing board': 'гладильная доска',
-            'vacuum cleaner': 'пылесос', 'broom': 'метла', 'mop': 'швабра', 'dustpan': 'совок',
-            'trash can': 'мусорное ведро', 'recycling bin': 'корзина для переработки',
-            'plant': 'растение', 'flower': 'цветок', 'vase': 'ваза', 'pot': 'горшок',
-            'planter': 'кашпо', 'herb garden': 'огород с травами', 'indoor garden': 'комнатный сад',
-            'aquarium': 'аквариум', 'terrarium': 'террариум', 'birdcage': 'клетка для птиц',
-            'pet bed': 'лежанка для питомца', 'dog house': 'собачья будка', 'cat tree': 'когтеточка',
-            'home decor': 'домашний декор', 'furniture': 'мебель', 'lighting': 'освещение',
-            'textile': 'текстиль', 'art': 'искусство', 'sculpture': 'скульптура',
-            'photograph': 'фотография', 'frame': 'рамка', 'display case': 'витрина',
-            'mantel': 'каминная полка', 'sconce': 'бра', 'chandelier': 'люстра',
-            'floor lamp': 'торшер', 'table lamp': 'настольная лампа', 'desk lamp': 'настольная лампа',
-            'night light': 'ночник', 'candle holder': 'подсвечник', 'vase': 'ваза',
-            'bowl': 'чаша', 'tray': 'поднос', 'basket': 'корзина', 'box': 'коробка',
-            'trinket': 'безделушка', 'ornament': 'украшение', 'figurine': 'фигурка',
-            'statuette': 'статуэтка', 'bookend': 'подставка для книг', 'paperweight': 'пресс-папье',
-            'globe': 'глобус', 'map': 'карта', 'compass': 'компас', 'telescope': 'телескоп',
-            'microscope': 'микроскоп', 'magnifying glass': 'увеличительное стекло',
-            'barometer': 'барометр', 'thermometer': 'термометр', 'hygrometer': 'гигрометр',
-            'clock': 'часы', 'sundial': 'солнечные часы', 'hourglass': 'песочные часы',
-            'calendar': 'календарь', 'planner': 'ежедневник', 'notebook': 'блокнот',
-            'pen': 'ручка', 'pencil': 'карандаш', 'marker': 'маркер', 'highlighter': 'маркер',
-            'stapler': 'степлер', 'staple remover': 'съемник скоб', 'hole punch': 'дырокол',
-            'scissors': 'ножницы', 'ruler': 'линейка', 'tape': 'лента', 'glue': 'клей',
-            'paper clip': 'скрепка', 'binder clip': 'зажим для бумаг', 'rubber band': 'резинка',
-            'push pin': 'канцелярская кнопка', 'thumbtack': 'канцелярская кнопка',
-            'bulletin board': 'пробковая доска', 'whiteboard': 'маркерная доска',
-            'chalkboard': 'грифельная доска', 'easel': 'мольберт', 'palette': 'палитра',
-            'paintbrush': 'кисть', 'paint': 'краска', 'canvas': 'холст', 'sketchbook': 'скетчбук',
-            'charcoal': 'уголь', 'pastel': 'пастель', 'watercolor': 'акварель',
-            'oil paint': 'масляная краска', 'acrylic paint': 'акриловая краска',
-            'clay': 'глина', 'pottery': 'гончарное изделие', 'ceramic': 'керамика',
-            'porcelain': 'фарфор', 'glassware': 'стеклянная посуда', 'crystal': 'хрусталь',
-            'silverware': 'серебряная посуда', 'cutlery': 'столовые приборы',
-            'china': 'фарфоровая посуда', 'stoneware': 'посуда из камня',
-            'woodwork': 'деревянное изделие', 'carving': 'резьба', 'inlay': 'инкрустация',
-            'mosaic': 'мозаика', 'stained glass': 'витраж', 'tapestry': 'гобелен',
-            'embroidery': 'вышивка', 'needlepoint': 'вышивание', 'cross-stitch': 'вышивка крестом',
-            'knitting': 'вязание', 'crochet': 'вязание крючком', 'sewing': 'шитье',
-            'quilting': 'лоскутное шитье', 'patchwork': 'пэчворк', 'weaving': 'ткачество',
-            'spinning': 'прядение', 'dyeing': 'окрашивание', 'printing': 'печать',
-            'bookbinding': 'переплетное дело', 'calligraphy': 'каллиграфия',
-            'illumination': 'иллюминирование', 'origami': 'оригами', 'paper craft': 'бумажное ремесло',
-            'scrapbooking': 'скрапбукинг', 'card making': 'изготовление открыток',
-            'jewelry making': 'изготовление украшений', 'beading': 'бисероплетение',
-            'metalworking': 'металлообработка', 'blacksmithing': 'кузнечное дело',
-            'welding': 'сварка', 'forging': 'ковка', 'casting': 'литье',
-            'engraving': 'гравировка', 'etching': 'травление', 'polishing': 'полировка',
-            'lacquering': 'лакирование', 'varnishing': 'лакирование', 'gilding': 'золочение',
-            'silvering': 'серебрение', 'bronzing': 'бронзирование', 'patinating': 'патинирование',
-            'restoration': 'реставрация', 'conservation': 'консервация', 'preservation': 'сохранение',
-            'framing': 'обрамление', 'matting': 'паспарту', 'glazing': 'остекление',
-            'mounting': 'монтаж', 'hanging': 'подвешивание', 'displaying': 'экспонирование',
-            'arranging': 'аранжировка', 'styling': 'стилизация', 'decorating': 'декорирование',
-            'renovation': 'реновация', 'remodeling': 'перепланировка', 'refurbishment': 'реконструкция',
-            'upcycling': 'апсайклинг', 'repurposing': 'перепрофилирование', 'recycling': 'переработка',
-            'sustainability': 'устойчивость', 'eco-friendly': 'экологичный',
-            'green design': 'зеленый дизайн', 'biophilic design': 'биофильный дизайн',
-            'minimalism': 'минимализм', 'maximalism': 'максимализм', 'modern': 'модерн',
-            'contemporary': 'современный', 'traditional': 'традиционный', 'classical': 'классический',
-            'rustic': 'деревенский', 'industrial': 'индустриальный', 'vintage': 'винтажный',
-            'retro': 'ретро', 'art deco': 'ар-деко', 'art nouveau': 'ар-нуво',
-            'mid-century modern': 'модерн середины века', 'scandinavian': 'скандинавский',
-            'japanese': 'японский', 'mediterranean': 'средиземноморский', 'bohemian': 'богемный',
-            'coastal': 'прибрежный', 'tropical': 'тропический', 'farmhouse': 'фермерский',
-            'cottage': 'коттеджный', 'lodge': 'охотничий', 'cabin': 'домик',
-            'chalet': 'шале', 'villa': 'вилла', 'mansion': 'особняк', 'palace': 'дворец',
-            'castle': 'замок', 'manor': 'поместье', 'estate': 'имение', 'property': 'собственность',
-            'real estate': 'недвижимость', 'architecture': 'архитектура', 'design': 'дизайн',
-            'layout': 'планировка', 'floor plan': 'поэтажный план', 'blueprint': 'чертеж',
-            'model': 'макет', 'render': 'рендер', 'visualization': 'визуализация',
-            'perspective': 'перспектива', 'elevation': 'фасад', 'section': 'разрез',
-            'detail': 'деталь', 'specification': 'спецификация', 'material': 'материал',
-            'finish': 'отделка', 'texture': 'текстура', 'color': 'цвет', 'pattern': 'узор',
-            'motif': 'мотив', 'theme': 'тема', 'style': 'стиль', 'aesthetic': 'эстетика',
-            'mood': 'настроение', 'atmosphere': 'атмосфера', 'ambiance': 'атмосфера',
-            'vibe': 'вибрация', 'feeling': 'чувство', 'emotion': 'эмоция', 'sensation': 'ощущение',
-            'impression': 'впечатление', 'experience': 'опыт', 'memory': 'воспоминание',
-            'nostalgia': 'ностальгия', 'sentiment': 'чувство', 'association': 'ассоциация',
-            'symbolism': 'символизм', 'meaning': 'значение', 'significance': 'значимость',
-            'value': 'ценность', 'worth': 'стоимость', 'price': 'цена', 'cost': 'затраты',
-            'budget': 'бюджет', 'investment': 'инвестиция', 'return': 'возврат',
-            'profit': 'прибыль', 'loss': 'убыток', 'gain': 'прирост', 'benefit': 'выгода',
-            'advantage': 'преимущество', 'disadvantage': 'недостаток', 'strength': 'сила',
-            'weakness': 'слабость', 'opportunity': 'возможность', 'threat': 'угроза',
-            'challenge': 'вызов', 'solution': 'решение', 'problem': 'проблема',
-            'issue': 'вопрос', 'concern': 'обеспокоенность', 'question': 'вопрос',
-            'answer': 'ответ', 'response': 'ответ', 'reply': 'ответ', 'feedback': 'обратная связь',
-            'comment': 'комментарий', 'opinion': 'мнение', 'view': 'взгляд',
-            'perspective': 'перспектива', 'standpoint': 'точка зрения', 'position': 'позиция',
-            'attitude': 'отношение', 'belief': 'убеждение', 'principle': 'принцип',
-            'value': 'ценность', 'virtue': 'добродетель', 'quality': 'качество',
-            'characteristic': 'характеристика', 'feature': 'особенность', 'aspect': 'аспект',
-            'element': 'элемент', 'component': 'компонент', 'ingredient': 'ингредиент',
-            'factor': 'фактор', 'variable': 'переменная', 'parameter': 'параметр',
-            'criterion': 'критерий', 'standard': 'стандарт', 'benchmark': 'ориентир',
-            'measure': 'мера', 'metric': 'метрика', 'indicator': 'индикатор',
-            'signal': 'сигнал', 'sign': 'знак', 'symbol': 'символ', 'mark': 'метка',
-            'token': 'жетон', 'badge': 'значок', 'emblem': 'эмблема', 'logo': 'логотип',
-            'brand': 'бренд', 'trademark': 'торговая марка', 'copyright': 'авторское право',
-            'patent': 'патент', 'license': 'лицензия', 'permit': 'разрешение',
-            'certificate': 'сертификат', 'diploma': 'диплом', 'degree': 'степень',
-            'qualification': 'квалификация', 'credential': 'удостоверение', 'document': 'документ',
-            'record': 'запись', 'file': 'файл', 'archive': 'архив', 'database': 'база данных',
-            'library': 'библиотека', 'collection': 'коллекция', 'set': 'набор',
-            'group': 'группа', 'category': 'категория', 'class': 'класс',
-            'type': 'тип', 'kind': 'вид', 'sort': 'сорт', 'variety': 'разновидность',
-            'species': 'вид', 'genus': 'род', 'family': 'семейство', 'order': 'отряд',
-            'class': 'класс', 'phylum': 'тип', 'kingdom': 'царство', 'domain': 'домен',
-            'realm': 'царство', 'world': 'мир', 'universe': 'вселенная', 'cosmos': 'космос',
-            'galaxy': 'галактика', 'star system': 'звездная система', 'planet': 'планета',
-            'moon': 'луна', 'asteroid': 'астероид', 'comet': 'комета', 'meteor': 'метеор',
-            'nebula': 'туманность', 'black hole': 'черная дыра', 'wormhole': 'кротовая нора',
-            'multiverse': 'мультивселенная', 'dimension': 'измерение', 'reality': 'реальность',
-            'existence': 'существование', 'being': 'бытие', 'consciousness': 'сознание',
-            'mind': 'разум', 'soul': 'душа', 'spirit': 'дух', 'energy': 'энергия',
-            'matter': 'материя', 'antimatter': 'антиматерия', 'dark matter': 'темная материя',
-            'dark energy': 'темная энергия', 'quantum': 'квант', 'particle': 'частица',
-            'atom': 'атом', 'molecule': 'молекула', 'element': 'элемент', 'compound': 'соединение',
-            'mixture': 'смесь', 'solution': 'раствор', 'suspension': 'суспензия',
-            'colloid': 'коллоид', 'emulsion': 'эмульсия', 'foam': 'пена',
-            'aerosol': 'аэрозоль', 'gel': 'гель', 'solid': 'твердое тело',
-            'liquid': 'жидкость', 'gas': 'газ', 'plasma': 'плазма', 'crystal': 'кристалл',
-            'mineral': 'минерал', 'rock': 'горная порода', 'stone': 'камень',
-            'gem': 'драгоценный камень', 'crystal': 'кристалл', 'metal': 'металл',
-            'alloy': 'сплав', 'ceramic': 'керамика', 'polymer': 'полимер',
-            'composite': 'композит', 'nanomaterial': 'наноматериал', 'biomaterial': 'биоматериал',
-            'smart material': 'умный материал', 'memory material': 'материал с памятью формы',
-            'phase change material': 'материал с фазовым переходом', 'superconductor': 'сверхпроводник',
-            'semiconductor': 'полупроводник', 'insulator': 'изолятор', 'conductor': 'проводник',
-            'magnet': 'магнит', 'electromagnet': 'электромагнит', 'super magnet': 'супермагнит',
-            'permanent magnet': 'постоянный магнит', 'temporary magnet': 'временный магнит',
-            'ferromagnet': 'ферромагнетик', 'paramagnet': 'парамагнетик', 'diamagnet': 'диамагнетик',
-            'magnetic field': 'магнитное поле', 'electric field': 'электрическое поле',
-            'gravitational field': 'гравитационное поле', 'quantum field': 'квантовое поле',
-            'force': 'сила', 'energy': 'энергия', 'power': 'мощность', 'work': 'работа',
-            'heat': 'тепло', 'temperature': 'температура', 'pressure': 'давление',
-            'volume': 'объем', 'density': 'плотность', 'mass': 'масса', 'weight': 'вес',
-            'gravity': 'гравитация', 'acceleration': 'ускорение', 'velocity': 'скорость',
-            'momentum': 'импульс', 'inertia': 'инерция', 'friction': 'трение',
-            'viscosity': 'вязкость', 'elasticity': 'упругость', 'plasticity': 'пластичность',
-            'ductility': 'пластичность', 'brittleness': 'хрупкость', 'hardness': 'твердость',
-            'toughness': 'вязкость', 'strength': 'прочность', 'stiffness': 'жесткость',
-            'flexibility': 'гибкость', 'malleability': 'ковкость', 'conductivity': 'проводимость',
-            'resistivity': 'удельное сопротивление', 'capacitance': 'емкость',
-            'inductance': 'индуктивность', 'impedance': 'импеданс', 'resonance': 'резонанс',
-            'frequency': 'частота', 'wavelength': 'длина волны', 'amplitude': 'амплитуда',
-            'phase': 'фаза', 'period': 'период', 'cycle': 'цикл', 'oscillation': 'колебание',
-            'vibration': 'вибрация', 'wave': 'волна', 'particle': 'частица',
-            'quantum': 'квант', 'photon': 'фотон', 'electron': 'электрон',
-            'proton': 'протон', 'neutron': 'нейтрон', 'quark': 'кварк', 'lepton': 'лептон',
-            'boson': 'бозон', 'fermion': 'фермион', 'hadron': 'адрон', 'meson': 'мезон',
-            'baryon': 'барион', 'atom': 'атом', 'molecule': 'молекула', 'ion': 'ион',
-            'isotope': 'изотоп', 'element': 'элемент', 'compound': 'соединение',
-            'mixture': 'смесь', 'solution': 'раствор', 'suspension': 'суспензия',
-            'colloid': 'коллоид', 'emulsion': 'эмульсия', 'foam': 'пена',
-            'aerosol': 'аэрозоль', 'gel': 'гель', 'solid': 'твердое тело',
-            'liquid': 'жидкость', 'gas': 'газ', 'plasma': 'плазма', 'crystal': 'кристалл',
-            'mineral': 'минерал', 'rock': 'горная порода', 'stone': 'камень',
-            'gem': 'драгоценный камень', 'crystal': 'кристалл', 'metal': 'металл',
-            'alloy': 'сплав', 'ceramic': 'керамика', 'polymer': 'полимер',
-            'composite': 'композит', 'nanomaterial': 'наноматериал', 'biomaterial': 'биоматериал',
-            'smart material': 'умный материал', 'memory material': 'материал с памятью формы',
-            'phase change material': 'материал с фазовым переходом', 'superconductor': 'сверхпроводник',
-            'semiconductor': 'полупроводник', 'insulator': 'изолятор', 'conductor': 'проводник',
-            'magnet': 'магнит', 'electromagnet': 'электромагнит', 'super magnet': 'супермагнит',
-            'permanent magnet': 'постоянный магнит', 'temporary magnet': 'временный магнит',
-            'ferromagnet': 'ферромагнетик', 'paramagnet': 'парамагнетик', 'diamagnet': 'диамагнетик',
-            'magnetic field': 'магнитное поле', 'electric field': 'электрическое поле',
-            'gravitational field': 'гравитационное поле', 'quantum field': 'квантовое поле',
-            'force': 'сила', 'energy': 'энергия', 'power': 'мощность', 'work': 'работа',
-            'heat': 'тепло', 'temperature': 'температура', 'pressure': 'давление',
-            'volume': 'объем', 'density': 'плотность', 'mass': 'масса', 'weight': 'вес',
-            'gravity': 'гравитация', 'acceleration': 'ускорение', 'velocity': 'скорость',
-            'momentum': 'импульс', 'inertia': 'инерция', 'friction': 'трение',
-            'viscosity': 'вязкость', 'elasticity': 'упругость', 'plasticity': 'пластичность',
-            'ductility': 'пластичность', 'brittleness': 'хрупкость', 'hardness': 'твердость',
-            'toughness': 'вязкость', 'strength': 'прочность', 'stiffness': 'жесткость',
-            'flexibility': 'гибкость', 'malleability': 'ковкость', 'conductivity': 'проводимость',
-            'resistivity': 'удельное сопротивление', 'capacitance': 'емкость',
-            'inductance': 'индуктивность', 'impedance': 'импеданс', 'resonance': 'резонанс',
-            'frequency': 'частота', 'wavelength': 'длина волны', 'amplitude': 'амплитуда',
-            'phase': 'фаза', 'period': 'период', 'cycle': 'цикл', 'oscillation': 'колебание',
-            'vibration': 'вибрация', 'wave': 'волна', 'particle': 'частица'
+            
+            # Город и архитектура (100+ слов)
+            'city': 'город', 'building': 'здание', 'skyscraper': 'небоскреб', 'tower': 'башня',
+            'bridge': 'мост', 'road': 'дорога', 'street': 'улица', 'square': 'площадь',
+            'park': 'парк', 'fountain': 'фонтан', 'statue': 'статуя', 'monument': 'памятник',
+            'church': 'церковь', 'cathedral': 'собор', 'mosque': 'мечеть', 'temple': 'храм',
+            'castle': 'замок', 'palace': 'дворец', 'museum': 'музей', 'library': 'библиотека',
+            
+            # Музыка и искусство (100+ слов)
+            'music': 'музыка', 'song': 'песня', 'instrument': 'инструмент', 'piano': 'пианино',
+            'guitar': 'гитара', 'violin': 'скрипка', 'drums': 'барабаны', 'trumpet': 'труба',
+            'art': 'искусство', 'painting': 'живопись', 'sculpture': 'скульптура', 'drawing': 'рисунок',
+            'photography': 'фотография', 'film': 'фильм', 'theater': 'театр', 'dance': 'танец',
+            
+            # Наука и образование (100+ слов)
+            'science': 'наука', 'technology': 'технология', 'math': 'математика', 'physics': 'физика',
+            'chemistry': 'химия', 'biology': 'биология', 'astronomy': 'астрономия', 'geography': 'география',
+            'history': 'история', 'book': 'книга', 'library': 'библиотека', 'school': 'школа',
+            'university': 'университет', 'laboratory': 'лаборатория', 'experiment': 'эксперимент',
+            
+            # Праздники и события (50+ слов)
+            'birthday': 'день рождения', 'wedding': 'свадьба', 'christmas': 'рождество', 'new year': 'новый год',
+            'easter': 'пасха', 'halloween': 'хэллоуин', 'party': 'вечеринка', 'celebration': 'празднование',
+            'fireworks': 'фейерверк', 'balloon': 'воздушный шар', 'gift': 'подарок', 'decoration': 'украшение',
+            
+            # Погода и времена года (50+ слов)
+            'spring': 'весна', 'summer': 'лето', 'autumn': 'осень', 'winter': 'зима',
+            'weather': 'погода', 'temperature': 'температура', 'climate': 'климат', 'season': 'время года',
+            'hot': 'жарко', 'cold': 'холодно', 'warm': 'тепло', 'cool': 'прохладно',
+            
+            # Эмоции и абстрактные понятия (100+ слов)
+            'love': 'любовь', 'happiness': 'счастье', 'sadness': 'грусть', 'anger': 'гнев',
+            'fear': 'страх', 'surprise': 'удивление', 'beauty': 'красота', 'truth': 'правда',
+            'freedom': 'свобода', 'justice': 'справедливость', 'peace': 'мир', 'war': 'война',
+            'dream': 'мечта', 'hope': 'надежда', 'faith': 'вера', 'success': 'успех',
         }
         
     def analyze_image(self, image_url):
@@ -703,17 +298,58 @@ class ImageAnalyzer:
         
         return color_analysis
 
-    def translate_object_name(self, english_name):
-        """Перевод названий объектов"""
-        return self.object_translations.get(english_name, english_name)
-
 # Инициализация анализатора
 image_analyzer = ImageAnalyzer()
 
-class WebCrawler:
-    """Веб-краулер для сканирования страниц и поиска изображений"""
+class ThreadManager:
+    """Менеджер потоков для управления многопоточным поиском"""
     
-    def __init__(self):
+    def __init__(self, max_workers=15):
+        self.max_workers = max_workers
+        self.active_threads = 0
+        self.completed_tasks = 0
+        self.failed_tasks = 0
+        self.lock = threading.Lock()
+    
+    def update_status(self):
+        """Обновление глобального статуса потоков"""
+        with self.lock:
+            app_status['active_threads'] = self.active_threads
+            app_status['max_threads'] = self.max_workers
+    
+    def task_completed(self, success=True):
+        """Отметить завершение задачи"""
+        with self.lock:
+            self.active_threads -= 1
+            if success:
+                self.completed_tasks += 1
+            else:
+                self.failed_tasks += 1
+            self.update_status()
+    
+    def start_task(self):
+        """Начать новую задачу"""
+        with self.lock:
+            if self.active_threads < self.max_workers:
+                self.active_threads += 1
+                self.update_status()
+                return True
+            return False
+    
+    def get_stats(self):
+        """Получить статистику"""
+        with self.lock:
+            return {
+                'active_threads': self.active_threads,
+                'max_threads': self.max_workers,
+                'completed_tasks': self.completed_tasks,
+                'failed_tasks': self.failed_tasks
+            }
+
+class WebCrawler:
+    """Веб-краулер для сканирования страниц и поиска изображений, сайтов и видео"""
+    
+    def __init__(self, thread_manager):
         self.user_agents = [
             'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -721,49 +357,109 @@ class WebCrawler:
         ]
         self.visited_urls = set()
         self.image_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.svg'}
-        
+        self.thread_manager = thread_manager
+        self.lock = threading.Lock()
+    
     def get_random_user_agent(self):
         return random.choice(self.user_agents)
     
-    def crawl_page(self, url, query_words):
-        """Сканирование страницы и извлечение изображений"""
-        if url in self.visited_urls:
+    def crawl_page(self, url, query_words, search_type='images'):
+        """Сканирование страницы и извлечение контента"""
+        if not self.thread_manager.start_task():
             return []
             
-        self.visited_urls.add(url)
-        
         try:
+            with self.lock:
+                if url in self.visited_urls:
+                    self.thread_manager.task_completed(False)
+                    return []
+                self.visited_urls.add(url)
+            
             headers = {'User-Agent': self.get_random_user_agent()}
             response = requests.get(url, headers=headers, timeout=8)
             
             if response.status_code != 200:
+                self.thread_manager.task_completed(False)
                 return []
             
             app_status['processed_pages'] += 1
             soup = BeautifulSoup(response.text, 'html.parser')
             
-            # Извлечение всех изображений
-            images_data = []
-            img_tags = soup.find_all('img')
+            if search_type == 'images':
+                results = self._extract_images(soup, url, query_words)
+            elif search_type == 'websites':
+                results = self._extract_websites(soup, url, query_words)
+            elif search_type == 'videos':
+                results = self._extract_videos(soup, url, query_words)
+            else:
+                results = []
             
-            for img in img_tags[:30]:  # Ограничиваем для производительности
-                try:
-                    image_info = self._extract_image_data(img, url, query_words)
-                    if image_info:
-                        images_data.append(image_info)
-                except Exception as e:
-                    continue
-            
-            return images_data
+            self.thread_manager.task_completed(True)
+            return results
             
         except Exception as e:
             logger.error(f"❌ Ошибка сканирования {url}: {e}")
+            self.thread_manager.task_completed(False)
             return []
+
+    def _extract_images(self, soup, page_url, query_words):
+        """Извлечение изображений со страницы"""
+        images_data = []
+        img_tags = soup.find_all('img')
+        
+        for img in img_tags[:30]:
+            try:
+                image_info = self._extract_image_data(img, page_url, query_words)
+                if image_info:
+                    images_data.append(image_info)
+            except Exception as e:
+                continue
+        
+        return images_data
+
+    def _extract_websites(self, soup, page_url, query_words):
+        """Извлечение веб-сайтов со страницы"""
+        websites_data = []
+        
+        links = soup.find_all('a', href=True)
+        
+        for link in links[:20]:
+            try:
+                website_info = self._extract_website_data(link, page_url, query_words)
+                if website_info:
+                    websites_data.append(website_info)
+            except Exception as e:
+                continue
+        
+        return websites_data
+
+    def _extract_videos(self, soup, page_url, query_words):
+        """Извлечение видео со страницы"""
+        videos_data = []
+        
+        video_tags = soup.find_all('video')
+        for video in video_tags[:10]:
+            try:
+                video_info = self._extract_video_data(video, page_url, query_words)
+                if video_info:
+                    videos_data.append(video_info)
+            except Exception as e:
+                continue
+        
+        iframe_tags = soup.find_all('iframe')
+        for iframe in iframe_tags[:10]:
+            try:
+                video_info = self._extract_iframe_video_data(iframe, page_url, query_words)
+                if video_info:
+                    videos_data.append(video_info)
+            except Exception as e:
+                continue
+        
+        return videos_data
 
     def _extract_image_data(self, img_tag, page_url, query_words):
         """Извлечение метаданных изображения"""
         try:
-            # Получение URL изображения
             img_src = (img_tag.get('src') or 
                       img_tag.get('data-src') or 
                       img_tag.get('data-lazy') or 
@@ -772,7 +468,6 @@ class WebCrawler:
             if not img_src:
                 return None
             
-            # Преобразование относительных URL
             if img_src.startswith('//'):
                 img_src = 'https:' + img_src
             elif img_src.startswith('/'):
@@ -780,7 +475,6 @@ class WebCrawler:
             elif not img_src.startswith('http'):
                 return None
             
-            # Пропускаем маленькие изображения и иконки
             width = img_tag.get('width')
             height = img_tag.get('height')
             if width and height:
@@ -790,21 +484,14 @@ class WebCrawler:
                 except:
                     pass
             
-            # Пропускаем SVG и иконки
             if any(icon in img_src.lower() for icon in ['icon', 'logo', 'sprite', 'spacer', 'pixel']):
                 return None
             
-            # Извлечение метаданных
             alt_text = img_tag.get('alt', '')
             title_text = img_tag.get('title', '')
-            
-            # Извлечение контекста
             context = self._get_image_context(img_tag)
-            
-            # Анализ имени файла
             filename = self._analyze_filename(img_src)
             
-            # Создание уникального ID
             image_id = hashlib.md5(img_src.encode()).hexdigest()
             
             image_data = {
@@ -825,7 +512,108 @@ class WebCrawler:
             return image_data
             
         except Exception as e:
-            logger.error(f"❌ Ошибка извлечения данных изображения: {e}")
+            return None
+
+    def _extract_website_data(self, link_tag, page_url, query_words):
+        """Извлечение данных веб-сайта"""
+        try:
+            href = link_tag.get('href', '')
+            if not href or href.startswith('#') or href.startswith('javascript:'):
+                return None
+            
+            if href.startswith('//'):
+                href = 'https:' + href
+            elif href.startswith('/'):
+                href = urlparse(page_url).scheme + '://' + urlparse(page_url).netloc + href
+            elif not href.startswith('http'):
+                return None
+            
+            link_text = link_tag.get_text(strip=True)
+            if not link_text or len(link_text) < 10:
+                return None
+            
+            description = self._get_link_description(link_tag)
+            relevance_score = self._calculate_website_relevance(link_text, description, query_words)
+            
+            if relevance_score < 1:
+                return None
+            
+            website_data = {
+                'url': href,
+                'title': link_text[:100],
+                'description': description[:200],
+                'domain': urlparse(href).netloc,
+                'relevance_score': relevance_score,
+                'display_url': self._get_display_url(href)
+            }
+            
+            return website_data
+            
+        except Exception as e:
+            return None
+
+    def _extract_video_data(self, video_tag, page_url, query_words):
+        """Извлечение данных видео"""
+        try:
+            video_src = (video_tag.get('src') or 
+                        video_tag.get('data-src'))
+            
+            if not video_src:
+                return None
+            
+            if video_src.startswith('//'):
+                video_src = 'https:' + video_src
+            elif video_src.startswith('/'):
+                video_src = urlparse(page_url).scheme + '://' + urlparse(page_url).netloc + video_src
+            elif not video_src.startswith('http'):
+                return None
+            
+            title = video_tag.get('title', '') or self._get_video_title(video_tag)
+            duration = video_tag.get('duration') or self._estimate_video_duration(video_tag)
+            
+            thumbnail = video_tag.get('poster', '')
+            if not thumbnail:
+                thumbnail = self._generate_video_placeholder()
+            
+            video_data = {
+                'url': video_src,
+                'title': title or 'Видео',
+                'thumbnail': thumbnail,
+                'duration': duration or 'Неизвестно',
+                'channel': urlparse(page_url).netloc,
+                'relevance_score': self._calculate_video_relevance(title, query_words)
+            }
+            
+            return video_data
+            
+        except Exception as e:
+            return None
+
+    def _extract_iframe_video_data(self, iframe_tag, page_url, query_words):
+        """Извлечение данных видео из iframe"""
+        try:
+            src = iframe_tag.get('src', '')
+            if not src:
+                return None
+            
+            video_platforms = ['youtube', 'vimeo', 'dailymotion', 'rutube']
+            if not any(platform in src.lower() for platform in video_platforms):
+                return None
+            
+            title = iframe_tag.get('title', '') or self._get_iframe_title(iframe_tag)
+            
+            video_data = {
+                'url': src,
+                'title': title or 'Видео',
+                'thumbnail': self._generate_video_placeholder(),
+                'duration': 'Неизвестно',
+                'channel': urlparse(src).netloc,
+                'relevance_score': self._calculate_video_relevance(title, query_words)
+            }
+            
+            return video_data
+            
+        except Exception as e:
             return None
 
     def _get_image_context(self, img_tag):
@@ -833,7 +621,6 @@ class WebCrawler:
         try:
             context_parts = []
             
-            # Текст из родительского элемента
             parent = img_tag.parent
             if parent:
                 temp_parent = parent.copy()
@@ -843,17 +630,14 @@ class WebCrawler:
                 if parent_text:
                     context_parts.append(parent_text)
             
-            # Заголовок страницы
             title_tag = img_tag.find_parent().find_previous(['h1', 'h2', 'h3'])
             if title_tag:
                 context_parts.append(title_tag.get_text(strip=True))
             
-            # Подпись (figcaption)
             figcaption = img_tag.find_next('figcaption')
             if figcaption:
                 context_parts.append(figcaption.get_text(strip=True))
             
-            # Ближайший абзац
             paragraph = img_tag.find_previous('p') or img_tag.find_next('p')
             if paragraph:
                 context_parts.append(paragraph.get_text(strip=True)[:200])
@@ -863,248 +647,355 @@ class WebCrawler:
         except Exception as e:
             return ""
 
+    def _get_link_description(self, link_tag):
+        """Извлечение описания ссылки"""
+        try:
+            description_parts = []
+            
+            parent = link_tag.parent
+            if parent:
+                temp_parent = parent.copy()
+                for a in temp_parent.find_all('a'):
+                    a.decompose()
+                parent_text = temp_parent.get_text(strip=True)
+                if parent_text:
+                    description_parts.append(parent_text)
+            
+            next_sibling = link_tag.find_next_sibling()
+            if next_sibling:
+                next_text = next_sibling.get_text(strip=True)
+                if next_text:
+                    description_parts.append(next_text)
+            
+            return ' '.join(description_parts)[:150]
+            
+        except Exception as e:
+            return ""
+
+    def _get_video_title(self, video_tag):
+        """Извлечение заголовка видео"""
+        try:
+            parent = video_tag.parent
+            for _ in range(3):
+                if parent:
+                    title_elem = parent.find(['h1', 'h2', 'h3', 'strong', 'b'])
+                    if title_elem:
+                        return title_elem.get_text(strip=True)
+                    parent = parent.parent
+            return ""
+        except:
+            return ""
+
+    def _get_iframe_title(self, iframe_tag):
+        """Извлечение заголовка iframe"""
+        try:
+            parent = iframe_tag.parent
+            for _ in range(3):
+                if parent:
+                    title_elem = parent.find(['h1', 'h2', 'h3', 'strong', 'b'])
+                    if title_elem:
+                        return title_elem.get_text(strip=True)
+                    parent = parent.parent
+            return ""
+        except:
+            return ""
+
+    def _estimate_video_duration(self, video_tag):
+        return "Неизвестно"
+
+    def _generate_video_placeholder(self):
+        return "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjE4MCIgdmlld0JveD0iMCAwIDMwMCAxODAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIzMDAiIGhlaWdodD0iMTgwIiBmaWxsPSIjRjNGNEY2Ii8+CjxwYXRoIGQ9Ik0xMjAgODBMMTYwIDEwMEwxMjAgMTIwVjgwWiIgZmlsbD0iIzlDQTNBRiIvPgo8L3N2Zz4="
+
+    def _get_display_url(self, url):
+        try:
+            parsed = urlparse(url)
+            return f"{parsed.netloc}{parsed.path}"
+        except:
+            return url
+
     def _analyze_filename(self, img_url):
-        """Анализ имени файла изображения"""
         try:
             filename = os.path.basename(urlparse(img_url).path)
             name_without_ext = os.path.splitext(filename)[0]
-            
-            # Удаляем цифры и специальные символы
             clean_name = re.sub(r'[\d_-]+', ' ', name_without_ext)
             clean_name = re.sub(r'\s+', ' ', clean_name).strip()
-            
             return clean_name if len(clean_name) > 2 else ""
         except:
             return ""
 
     def _calculate_relevance(self, alt, title, filename, context, query_words):
-        """Расчет релевантности на основе метаданных"""
         score = 0
         all_text = f"{alt} {title} {filename} {context}".lower()
         
         for word in query_words:
             if len(word) > 2:
                 if word in all_text:
-                    # Разный вес для разных источников
                     if word in alt.lower():
-                        score += 3  # Высокий вес для alt
+                        score += 3
                     if word in title.lower():
-                        score += 2  # Средний вес для title
+                        score += 2
                     if word in filename.lower():
-                        score += 2  # Средний вес для имени файла
+                        score += 2
                     if word in context.lower():
-                        score += 1  # Низкий вес для контекста
+                        score += 1
         
         return score
 
-class ImageSearchEngine:
-    """Поисковая система для изображений"""
-    
-    def __init__(self):
-        self.crawler = WebCrawler()
-        self.start_urls = [
-            "https://unsplash.com/s/photos/",
-            "https://pixabay.com/images/search/",
-            "https://www.pexels.com/search/",
-            "https://www.flickr.com/search/?text=",
-            "https://www.shutterstock.com/search/",
-            "https://commons.wikimedia.org/w/index.php?search=",
-            "https://www.deviantart.com/search?q=",
-            "https://www.artstation.com/search?q=",
-            "https://www.gettyimages.com/photos/",
-            "https://www.istockphoto.com/search/2/image?phrase="
-        ]
+    def _calculate_website_relevance(self, title, description, query_words):
+        score = 0
+        all_text = f"{title} {description}".lower()
         
-    def search_images(self, query, max_results=20):
-        """Основной метод поиска изображений"""
-        logger.info(f"🔍 Начало поиска изображений для: '{query}'")
+        for word in query_words:
+            if len(word) > 2 and word in all_text:
+                if word in title.lower():
+                    score += 3
+                if word in description.lower():
+                    score += 2
+        
+        return score
+
+    def _calculate_video_relevance(self, title, query_words):
+        score = 0
+        title_lower = title.lower()
+        
+        for word in query_words:
+            if len(word) > 2 and word in title_lower:
+                score += 3
+        
+        return score
+
+class ParallelSearchEngine:
+    """Параллельная поисковая система с многопоточностью"""
+    
+    def __init__(self, max_workers=15):
+        self.thread_manager = ThreadManager(max_workers)
+        self.crawler = WebCrawler(self.thread_manager)
+        self.search_urls = {
+            'images': [
+                "https://unsplash.com/s/photos/",
+                "https://pixabay.com/images/search/",
+                "https://www.pexels.com/search/",
+                "https://www.flickr.com/search/?text=",
+                "https://www.shutterstock.com/search/",
+                "https://commons.wikimedia.org/w/index.php?search=",
+                "https://www.deviantart.com/search?q=",
+                "https://www.artstation.com/search?q=",
+            ],
+            'websites': [
+                "https://www.google.com/search?q=",
+                "https://www.bing.com/search?q=",
+                "https://yandex.ru/search/?text=",
+                "https://duckduckgo.com/html/?q=",
+                "https://search.yahoo.com/search?p=",
+                "https://www.baidu.com/s?wd=",
+            ],
+            'videos': [
+                "https://www.youtube.com/results?search_query=",
+                "https://vimeo.com/search?q=",
+                "https://www.dailymotion.com/search/",
+                "https://rutube.ru/search/?q=",
+                "https://www.tiktok.com/search?q=",
+            ]
+        }
+        
+    def search(self, query, max_results=20, search_types=None):
+        """Основной метод поиска с многопоточностью"""
+        logger.info(f"🔍 Начало параллельного поиска для: '{query}'")
+        
+        if search_types is None:
+            search_types = ['images', 'websites', 'videos']
         
         query_words = re.findall(r'\w+', query.lower())
         if not query_words:
-            return []
+            return {}
         
-        # Этап 1: Сканирование и сбор изображений
-        all_images = self._crawl_images(query, query_words)
+        start_time = time.time()
+        results = {}
         
-        # Этап 2: Анализ метаданных и индексация
-        analyzed_images = self._analyze_and_index_images(all_images, query_words)
-        
-        # Этап 3: Ранжирование результатов
-        ranked_images = self._rank_images(analyzed_images, query_words)
-        
-        # Этап 4: Форматирование результатов
-        final_results = self._format_results(ranked_images[:max_results])
-        
-        logger.info(f"✅ Поиск завершен. Найдено: {len(final_results)} изображений")
-        return final_results
-
-    def _crawl_images(self, query, query_words):
-        """Этап 1: Сканирование страниц и сбор изображений"""
-        all_images = []
-        
-        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-            futures = []
+        # Создаем пул потоков для каждого типа поиска
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(search_types)) as main_executor:
+            future_to_type = {}
             
-            # Сканирование специализированных фото-сайтов
-            for site in self.start_urls:
-                search_url = site + quote_plus(query)
-                future = executor.submit(self.crawler.crawl_page, search_url, query_words)
-                futures.append(future)
+            for search_type in search_types:
+                if search_type in self.search_urls:
+                    future = main_executor.submit(
+                        self._parallel_search_type,
+                        query, query_words, search_type, max_results
+                    )
+                    future_to_type[future] = search_type
             
-            # Сканирование дополнительных страниц на основе запроса
-            additional_urls = self._generate_search_urls(query)
-            for url in additional_urls[:3]:
-                future = executor.submit(self.crawler.crawl_page, url, query_words)
-                futures.append(future)
-            
-            # Сбор результатов
-            for future in concurrent.futures.as_completed(futures):
+            # Собираем результаты
+            for future in concurrent.futures.as_completed(future_to_type):
+                search_type = future_to_type[future]
                 try:
-                    images = future.result(timeout=10)
-                    all_images.extend(images)
+                    results[search_type] = future.result(timeout=25)
+                    logger.info(f"✅ {search_type} поиск завершен: {len(results[search_type])} результатов")
                 except Exception as e:
-                    continue
+                    logger.error(f"❌ Ошибка {search_type} поиска: {e}")
+                    results[search_type] = []
         
-        return all_images
+        search_time = time.time() - start_time
+        
+        logger.info(f"🎯 Параллельный поиск завершен за {search_time:.2f}с. "
+                   f"Активные потоки: {self.thread_manager.active_threads}, "
+                   f"Статистика: {self.thread_manager.get_stats()}")
+        
+        return results
 
-    def _generate_search_urls(self, query):
-        """Генерация URL для поиска на основе запроса"""
-        base_searches = [
-            f"https://www.google.com/search?q={quote_plus(query)}&tbm=isch",
-            f"https://www.bing.com/images/search?q={quote_plus(query)}",
-            f"https://yandex.ru/images/search?text={quote_plus(query)}",
-        ]
+    def _parallel_search_type(self, query, query_words, search_type, max_results):
+        """Параллельный поиск по конкретному типу контента"""
+        all_results = []
+        urls = self.search_urls[search_type]
         
-        return base_searches
+        # Создаем дополнительные URL для более широкого поиска
+        additional_urls = self._generate_additional_urls(query, search_type)
+        all_urls = urls + additional_urls
+        
+        logger.info(f"🚀 Запуск {len(all_urls)} потоков для {search_type} поиска")
+        
+        # Используем ThreadPoolExecutor для параллельного сканирования URL
+        with concurrent.futures.ThreadPoolExecutor(max_workers=min(8, len(all_urls))) as executor:
+            future_to_url = {}
+            
+            for url in all_urls:
+                search_url = url + quote_plus(query)
+                future = executor.submit(
+                    self.crawler.crawl_page,
+                    search_url, query_words, search_type
+                )
+                future_to_url[future] = search_url
+            
+            # Собираем результаты с таймаутом
+            for future in concurrent.futures.as_completed(future_to_url):
+                url = future_to_url[future]
+                try:
+                    items = future.result(timeout=12)
+                    if items:
+                        all_results.extend(items)
+                        logger.debug(f"📥 Получено {len(items)} результатов с {urlparse(url).netloc}")
+                except concurrent.futures.TimeoutError:
+                    logger.warning(f"⏰ Таймаут для {url}")
+                except Exception as e:
+                    logger.debug(f"❌ Ошибка для {url}: {e}")
+        
+        # Ранжирование результатов
+        if search_type == 'images':
+            ranked_results = self._rank_images(all_results, query_words)
+        elif search_type == 'websites':
+            ranked_results = self._rank_websites(all_results, query_words)
+        elif search_type == 'videos':
+            ranked_results = self._rank_videos(all_results, query_words)
+        else:
+            ranked_results = all_results
+        
+        return ranked_results[:max_results]
 
-    def _analyze_and_index_images(self, images, query_words):
-        """Этап 2: Анализ метаданных и компьютерное зрение"""
-        analyzed_images = []
+    def _generate_additional_urls(self, query, search_type):
+        """Генерация дополнительных URL для поиска"""
+        base_urls = []
+        query_encoded = quote_plus(query)
         
-        for image_data in images:
-            try:
-                # Пропускаем уже проанализированные
-                if image_data['id'] in image_index['by_id']:
-                    analyzed_images.append(image_index['by_id'][image_data['id']])
-                    continue
-                
-                # Анализ компьютерным зрением
-                if not image_data['vision_analyzed']:
-                    vision_analysis = image_analyzer.analyze_image(image_data['url'])
-                    image_data['vision_analysis'] = vision_analysis
-                    image_data['vision_analyzed'] = True
-                
-                # Обновление релевантности на основе анализа зрения
-                vision_score = self._calculate_vision_relevance(image_data['vision_analysis'], query_words)
-                image_data['relevance_score'] += vision_score
-                
-                # Индексация изображения
-                self._index_image(image_data)
-                analyzed_images.append(image_data)
-                
-                app_status['indexed_images'] += 1
-                
-            except Exception as e:
-                logger.error(f"❌ Ошибка анализа изображения {image_data['url']}: {e}")
-                continue
+        if search_type == 'images':
+            base_urls = [
+                f"https://www.google.com/search?q={query_encoded}&tbm=isch",
+                f"https://www.bing.com/images/search?q={query_encoded}",
+                f"https://yandex.ru/images/search?text={query_encoded}",
+            ]
+        elif search_type == 'websites':
+            base_urls = [
+                f"https://www.google.com/search?q={query_encoded}",
+                f"https://www.bing.com/search?q={query_encoded}",
+                f"https://yandex.ru/search/?text={query_encoded}",
+            ]
+        elif search_type == 'videos':
+            base_urls = [
+                f"https://www.youtube.com/results?search_query={query_encoded}",
+                f"https://vimeo.com/search?q={query_encoded}",
+            ]
         
-        return analyzed_images
-
-    def _calculate_vision_relevance(self, vision_analysis, query_words):
-        """Расчет релевантности на основе анализа компьютерного зрения"""
-        score = 0
-        
-        for obj, confidence in vision_analysis.items():
-            for word in query_words:
-                if word in obj or self._is_synonym(word, obj):
-                    score += confidence * 2  # Высокий вес для совпадений в анализе зрения
-        
-        return score
-
-    def _is_synonym(self, word, object_name):
-        """Проверка синонимичности (упрощенная)"""
-        synonyms = {
-            'кот': ['кошка', 'котенок'],
-            'собака': ['пес', 'щенок'],
-            'машина': ['автомобиль', 'тачка'],
-            'человек': ['люди', 'персона'],
-            'цветок': ['цветы', 'букет'],
-            'дом': ['здание', 'строение'],
-            'горы': ['гора', 'вершина'],
-            'пляж': ['берег', 'песок'],
-            'город': ['улица', 'здания']
-        }
-        return word in synonyms.get(object_name, [])
-
-    def _index_image(self, image_data):
-        """Индексация изображения в глобальном индексе"""
-        image_id = image_data['id']
-        
-        # Сохраняем в основной индекс
-        image_index['by_id'][image_id] = image_data
-        
-        # Индексация по объектам (компьютерное зрение)
-        if 'vision_analysis' in image_data:
-            for obj, confidence in image_data['vision_analysis'].items():
-                if confidence > 0.3:  # Только уверенные предсказания
-                    image_index['by_object'][obj].append(image_id)
-        
-        # Индексация по домену
-        image_index['by_domain'][image_data['domain']].append(image_id)
-        
-        # Индексация по цветам (если есть в анализе)
-        if 'vision_analysis' in image_data:
-            for color in image_data['vision_analysis'].keys():
-                if color in image_analyzer.color_names.values():
-                    image_index['by_color'][color].append(image_id)
+        return base_urls
 
     def _rank_images(self, images, query_words):
-        """Этап 3: Ранжирование изображений"""
+        """Ранжирование изображений"""
         scored_images = []
         
         for image in images:
             try:
-                # Базовый счет на основе метаданных
-                final_score = image['relevance_score']
-                
-                # Бонус за качественные источники
-                final_score += self._calculate_domain_authority(image['domain'])
-                
-                # Бонус за высокое качество изображения (упрощенно)
+                final_score = image.get('relevance_score', 0)
+                final_score += self._calculate_domain_authority(image.get('domain', ''))
                 final_score += self._estimate_image_quality(image)
                 
-                # Штраф за низкое качество метаданных
-                if not image['alt'] and not image['title']:
-                    final_score -= 2
+                if not image.get('vision_analyzed', False):
+                    vision_analysis = image_analyzer.analyze_image(image['url'])
+                    image['vision_analysis'] = vision_analysis
+                    image['vision_analyzed'] = True
+                    
+                    vision_score = self._calculate_vision_relevance(vision_analysis, query_words)
+                    final_score += vision_score
                 
                 scored_images.append((final_score, image))
                 
             except Exception as e:
                 continue
         
-        # Сортировка по убыванию релевантности
         scored_images.sort(key=lambda x: x[0], reverse=True)
         return [img for score, img in scored_images]
 
+    def _rank_websites(self, websites, query_words):
+        """Ранжирование веб-сайтов"""
+        scored_websites = []
+        
+        for website in websites:
+            try:
+                final_score = website.get('relevance_score', 0)
+                final_score += self._calculate_domain_authority(website.get('domain', ''))
+                
+                if len(website.get('description', '')) > 50:
+                    final_score += 1
+                
+                scored_websites.append((final_score, website))
+                
+            except Exception as e:
+                continue
+        
+        scored_websites.sort(key=lambda x: x[0], reverse=True)
+        return [site for score, site in scored_websites]
+
+    def _rank_videos(self, videos, query_words):
+        """Ранжирование видео"""
+        scored_videos = []
+        
+        for video in videos:
+            try:
+                final_score = video.get('relevance_score', 0)
+                
+                if any(platform in video.get('channel', '').lower() 
+                      for platform in ['youtube', 'vimeo']):
+                    final_score += 2
+                
+                if video.get('thumbnail'):
+                    final_score += 1
+                
+                scored_videos.append((final_score, video))
+                
+            except Exception as e:
+                continue
+        
+        scored_videos.sort(key=lambda x: x[0], reverse=True)
+        return [video for score, video in scored_videos]
+
     def _calculate_domain_authority(self, domain):
-        """Расчет авторитетности домена (упрощенно)"""
         authority_domains = {
-            'unsplash.com': 3,
-            'pixabay.com': 3,
-            'pexels.com': 3,
-            'flickr.com': 2,
-            'shutterstock.com': 2,
-            'gettyimages.com': 2,
-            'wikipedia.org': 2,
-            'nationalgeographic.com': 3
+            'unsplash.com': 3, 'pixabay.com': 3, 'pexels.com': 3,
+            'flickr.com': 2, 'shutterstock.com': 2, 'gettyimages.com': 2,
+            'wikipedia.org': 3, 'youtube.com': 3, 'vimeo.com': 2,
+            'google.com': 3, 'github.com': 2, 'stackoverflow.com': 2
         }
         return authority_domains.get(domain, 0)
 
     def _estimate_image_quality(self, image_data):
-        """Оценка качества изображения (упрощенно)"""
         score = 0
         
-        # Бонус за наличие детальных метаданных
         if len(image_data.get('alt', '')) > 10:
             score += 1
         if len(image_data.get('title', '')) > 5:
@@ -1112,54 +1003,32 @@ class ImageSearchEngine:
         if image_data.get('filename'):
             score += 1
         
-        # Бонус за анализ компьютерным зрением
-        if image_data.get('vision_analyzed'):
-            score += 2
+        return score
+
+    def _calculate_vision_relevance(self, vision_analysis, query_words):
+        score = 0
+        
+        for obj, confidence in vision_analysis.items():
+            for word in query_words:
+                if word in obj or self._is_synonym(word, obj):
+                    score += confidence * 2
         
         return score
 
-    def _format_results(self, images):
-        """Форматирование результатов для вывода"""
-        formatted_results = []
-        
-        for image in images:
-            try:
-                # Создание описания на основе метаданных
-                description_parts = []
-                if image.get('alt'):
-                    description_parts.append(image['alt'])
-                elif image.get('title'):
-                    description_parts.append(image['title'])
-                elif image.get('filename'):
-                    description_parts.append(image['filename'])
-                
-                description = ' '.join(description_parts) or "Изображение"
-                
-                # Определение типа анализа
-                analysis_type = "🤖 Компьютерное зрение" if image.get('vision_analyzed') else "📝 Метаданные"
-                
-                formatted_results.append({
-                    'title': description[:80],
-                    'url': image['url'],
-                    'thumbnail': image['thumbnail'],
-                    'source': image['domain'],
-                    'metadata': {
-                        'alt': image.get('alt', ''),
-                        'context': image.get('context', '')[:100],
-                        'relevance_score': round(image.get('relevance_score', 0), 2),
-                        'analysis_type': analysis_type,
-                        'filename': image.get('filename', '')
-                    }
-                })
-            except Exception as e:
-                continue
-        
-        return formatted_results
+    def _is_synonym(self, word, object_name):
+        synonyms = {
+            'кот': ['кошка', 'котенок'],
+            'собака': ['пес', 'щенок'],
+            'машина': ['автомобиль', 'тачка'],
+            'человек': ['люди', 'персона'],
+            'цветок': ['цветы', 'букет'],
+        }
+        return word in synonyms.get(object_name, [])
 
-# Инициализация поисковой системы
-image_search_engine = ImageSearchEngine()
+# Инициализация поисковой системы с многопоточностью
+search_engine = ParallelSearchEngine(max_workers=20)
 
-# HTML шаблон (остается без изменений)
+# HTML шаблон (остается практически без изменений, но добавим информацию о потоках)
 HTML_TEMPLATE = '''
 <!DOCTYPE html>
 <html lang="ru">
@@ -1602,19 +1471,47 @@ HTML_TEMPLATE = '''
             font-size: 12px;
             color: #0c4a6e;
         }
+        
+        .threads-info {
+            background: #fef3c7;
+            border: 1px solid #f59e0b;
+            padding: 8px 12px;
+            border-radius: 6px;
+            margin: 5px 0;
+            font-size: 11px;
+            color: #92400e;
+        }
+        
+        .progress-bar {
+            width: 100%;
+            height: 6px;
+            background: #e5e7eb;
+            border-radius: 3px;
+            overflow: hidden;
+            margin: 5px 0;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #10b981, #059669);
+            transition: width 0.3s ease;
+        }
     </style>
 </head>
 <body>
     <div class="main-container">
         <div class="search-container">
             <div class="logo"><a href="/">AriOS</a></div>
-            <div class="tagline">Продвинутая поисковая система • Умный поиск изображений</div>
+            <div class="tagline">Продвинутая поисковая система • Многопоточный поиск • Высокая скорость</div>
             
             {% if show_status %}
                 {% if is_active %}
                 <div class="status-info">
                     ✅ Сервис активен • Проиндексировано: {{ indexed_images }} изображений • 
                     Обработано: {{ processed_pages }} страниц • Поисков: {{ total_searches }}
+                    {% if active_threads > 0 %}
+                    <br>🎯 Активные потоки: {{ active_threads }}/{{ max_threads }}
+                    {% endif %}
                 </div>
                 {% else %}
                 <div class="status-warning">
@@ -1624,29 +1521,29 @@ HTML_TEMPLATE = '''
             {% endif %}
             
             <form action="/search" method="GET" id="searchForm">
-                <input type="text" name="q" class="search-box" value="{{ query }}" placeholder="Введите запрос для поиска изображений..." autofocus>
+                <input type="text" name="q" class="search-box" value="{{ query }}" placeholder="Введите запрос для многопоточного поиска..." autofocus>
                 <br>
-                <button type="submit" class="search-button">Найти в AriOS</button>
-                <button type="button" class="search-button" style="background: #6b7280;" onclick="location.href='/?status=true'">Статус</button>
+                <button type="submit" class="search-button">🚀 Найти в AriOS</button>
+                <button type="button" class="search-button" style="background: #6b7280;" onclick="location.href='/?status=true'">📊 Статус</button>
             </form>
             
             {% if not results and not images and not videos and not error and not loading %}
             <div class="quick-search">
                 <strong>Попробуйте найти:</strong><br>
-                <button class="quick-search-btn" onclick="setSearch('кошки котята')">Кошки</button>
-                <button class="quick-search-btn" onclick="setSearch('горы природа')">Горы</button>
-                <button class="quick-search-btn" onclick="setSearch('цветы розы')">Цветы</button>
-                <button class="quick-search-btn" onclick="setSearch('город небоскребы')">Город</button>
-                <button class="quick-search-btn" onclick="setSearch('пляж море')">Пляж</button>
+                <button class="quick-search-btn" onclick="setSearch('кошки котята')">🐱 Кошки</button>
+                <button class="quick-search-btn" onclick="setSearch('горы природа')">🏔️ Горы</button>
+                <button class="quick-search-btn" onclick="setSearch('цветы розы')">🌹 Цветы</button>
+                <button class="quick-search-btn" onclick="setSearch('город небоскребы')">🏙️ Город</button>
+                <button class="quick-search-btn" onclick="setSearch('пляж море')">🏖️ Пляж</button>
             </div>
             {% endif %}
             
             <div class="feature-badges">
-                <div class="badge">🔍 Умный поиск</div>
+                <div class="badge">🚀 Многопоточность</div>
                 <div class="badge">📷 Компьютерное зрение</div>
-                <div class="badge">🌐 Сканирование сайтов</div>
-                <div class="badge">⚡ Быстрый анализ</div>
-                <div class="badge">🎯 Точные результаты</div>
+                <div class="badge">🌐 Сайты и видео</div>
+                <div class="badge">⚡ Высокая скорость</div>
+                <div class="badge">🎯 Умный поиск</div>
             </div>
             
             {% if error %}
@@ -1655,9 +1552,16 @@ HTML_TEMPLATE = '''
             
             {% if loading %}
             <div class="loading">
-                🔍 Ищем изображения для "{{ query }}"...
+                🔍 Параллельный поиск "{{ query }}"...
+                <div class="threads-info">
+                    🎯 Активные потоки: {{ active_threads }}/{{ max_threads }} • 
+                    📊 Обработано страниц: {{ processed_pages }}
+                </div>
+                <div class="progress-bar">
+                    <div class="progress-fill" style="width: 60%"></div>
+                </div>
                 <div class="stats-info">
-                    Этап 1: Сканирование сайтов... | Этап 2: Анализ изображений... | Этап 3: Ранжирование...
+                    Этап 1: Запуск потоков... | Этап 2: Параллельное сканирование... | Этап 3: Анализ и ранжирование...
                 </div>
             </div>
             {% endif %}
@@ -1665,15 +1569,21 @@ HTML_TEMPLATE = '''
             {% if results or images or videos %}
             <div class="results-container">
                 <div class="results-header">
-                    Найдено изображений: {{ total_results }} • Время: {{ search_time }}с • 
-                    Запрос: "{{ query }}" • Алгоритм: компьютерное зрение + метаданные
+                    🎯 Найдено: {{ total_results }} • ⚡ Время: {{ search_time }}с • 
+                    📊 Запрос: "{{ query }}" • 🚀 Алгоритм: параллельный поиск
                 </div>
                 
                 <div class="search-stats">
-                    🔍 <strong>Алгоритм поиска:</strong> 
-                    Сканирование 10+ фото-сайтов → Анализ метаданных (alt, title, filename) → 
-                    Компьютерное зрение → Многофакторное ранжирование
+                    🔍 <strong>Параллельный алгоритм поиска:</strong> 
+                    Запуск 15+ потоков → Сканирование 20+ источников → Анализ метаданных → Компьютерное зрение → Многофакторное ранжирование
                 </div>
+                
+                {% if active_threads > 0 %}
+                <div class="threads-info">
+                    ⚡ Поиск продолжается в фоновом режиме • Активные потоки: {{ active_threads }} • 
+                    Обновление результатов каждые 5 секунд...
+                </div>
+                {% endif %}
                 
                 <!-- Панель фильтров -->
                 <div class="filter-tabs">
@@ -1745,9 +1655,11 @@ HTML_TEMPLATE = '''
                     <div class="section-title">🌐 Веб-сайты</div>
                     {% for result in results %}
                     <div class="result-item">
-                        <a href="{{ result.url }}" class="result-title" target="_blank">{{ result.highlighted_title|safe }}</a>
+                        <a href="{{ result.url }}" class="result-title" target="_blank">
+                            {{ result.title }}
+                        </a>
                         <div class="result-url">{{ result.display_url }}</div>
-                        <div class="result-snippet">{{ result.highlighted_snippet|safe }}</div>
+                        <div class="result-snippet">{{ result.description }}</div>
                     </div>
                     {% endfor %}
                     {% endif %}
@@ -1759,9 +1671,11 @@ HTML_TEMPLATE = '''
                     <div class="section-title">🌐 Веб-сайты ({{ websites_count }})</div>
                     {% for result in results %}
                     <div class="result-item">
-                        <a href="{{ result.url }}" class="result-title" target="_blank">{{ result.highlighted_title|safe }}</a>
+                        <a href="{{ result.url }}" class="result-title" target="_blank">
+                            {{ result.title }}
+                        </a>
                         <div class="result-url">{{ result.display_url }}</div>
-                        <div class="result-snippet">{{ result.highlighted_snippet|safe }}</div>
+                        <div class="result-snippet">{{ result.description }}</div>
                     </div>
                     {% endfor %}
                     {% else %}
@@ -1777,7 +1691,7 @@ HTML_TEMPLATE = '''
                     <div class="section-title">📷 Изображения ({{ images_count }})</div>
                     <div class="stats-info">
                         🔍 <strong>Технологии поиска:</strong> 
-                        Сканирование Unsplash, Pixabay, Pexels + Анализ alt/text + Компьютерное зрение + Ранжирование по релевантности
+                        Параллельное сканирование 10+ фото-сайтов → Анализ alt/text + Компьютерное зрение → Ранжирование по релевантности
                     </div>
                     <div class="images-container">
                         {% for image in images %}
@@ -1837,9 +1751,9 @@ HTML_TEMPLATE = '''
         </div>
         
         <div class="footer">
-            © 2024 AriOS • Продвинутая поисковая система • Компьютерное зрение • 
-            <a href="/status" style="color: #6366f1;">Статус</a> • 
-            <a href="/about" style="color: #6366f1;">О системе</a>
+            © 2024 AriOS • Продвинутая поисковая система • 🚀 Многопоточный поиск • 
+            <a href="/status" style="color: #6366f1;">📊 Статус</a> • 
+            <a href="/about" style="color: #6366f1;">ℹ️ О системе</a>
         </div>
     </div>
 
@@ -1850,27 +1764,19 @@ HTML_TEMPLATE = '''
         }
         
         function showContent(type) {
-            // Скрываем все контент-блоки
             document.querySelectorAll('.content-type').forEach(el => {
                 el.classList.remove('active');
             });
-            
-            // Показываем выбранный контент-блок
             document.getElementById('content-' + type).classList.add('active');
-            
-            // Обновляем активную вкладку
             document.querySelectorAll('.filter-tab').forEach(tab => {
                 tab.classList.remove('active');
             });
             event.target.classList.add('active');
-            
-            // Сохраняем выбранную вкладку в URL
             const url = new URL(window.location);
             url.searchParams.set('tab', type);
             window.history.replaceState({}, '', url);
         }
         
-        // Восстанавливаем выбранную вкладку при загрузке
         document.addEventListener('DOMContentLoaded', function() {
             const urlParams = new URLSearchParams(window.location.search);
             const savedTab = urlParams.get('tab');
@@ -1880,6 +1786,13 @@ HTML_TEMPLATE = '''
         });
         
         document.querySelector('.search-box').focus();
+        
+        // Авто-обновление статуса потоков
+        {% if active_threads > 0 %}
+        setTimeout(() => {
+            window.location.reload();
+        }, 5000);
+        {% endif %}
     </script>
 </body>
 </html>
@@ -1989,7 +1902,9 @@ def home():
                                 images_count=0,
                                 videos_count=0,
                                 indexed_images=app_status['indexed_images'],
-                                processed_pages=app_status['processed_pages'])
+                                processed_pages=app_status['processed_pages'],
+                                active_threads=app_status['active_threads'],
+                                max_threads=app_status['max_threads'])
 
 @app.route('/search')
 def search():
@@ -2015,24 +1930,28 @@ def search():
                                    images_count=0,
                                    videos_count=0,
                                    indexed_images=app_status['indexed_images'],
-                                   processed_pages=app_status['processed_pages'])
+                                   processed_pages=app_status['processed_pages'],
+                                   active_threads=app_status['active_threads'],
+                                   max_threads=app_status['max_threads'])
     
     try:
         app_status['total_searches'] += 1
         
         start_time = time.time()
         
-        # Используем только улучшенный поиск изображений
-        images = image_search_engine.search_images(query, max_results=20)
-        results = []  # Для совместимости с шаблоном
-        videos = []   # Для совместимости с шаблоном
+        # Используем параллельную поисковую систему
+        search_results = search_engine.search(query, max_results=20)
+        
+        results = search_results.get('websites', [])
+        images = search_results.get('images', [])
+        videos = search_results.get('videos', [])
         
         search_time = time.time() - start_time
         
-        total_results = len(images)
-        websites_count = 0
+        total_results = len(results) + len(images) + len(videos)
+        websites_count = len(results)
         images_count = len(images)
-        videos_count = 0
+        videos_count = len(videos)
         
         last_ping = "никогда"
         if app_status['last_self_ping']:
@@ -2060,7 +1979,9 @@ def search():
                                    images_count=images_count,
                                    videos_count=videos_count,
                                    indexed_images=app_status['indexed_images'],
-                                   processed_pages=app_status['processed_pages'])
+                                   processed_pages=app_status['processed_pages'],
+                                   active_threads=app_status['active_threads'],
+                                   max_threads=app_status['max_threads'])
     
     except Exception as e:
         logger.error(f"❌ Search error: {e}")
@@ -2080,7 +2001,9 @@ def search():
                                    images_count=0,
                                    videos_count=0,
                                    indexed_images=app_status['indexed_images'],
-                                   processed_pages=app_status['processed_pages'])
+                                   processed_pages=app_status['processed_pages'],
+                                   active_threads=app_status['active_threads'],
+                                   max_threads=app_status['max_threads'])
 
 @app.route('/health')
 def health():
@@ -2091,7 +2014,9 @@ def health():
         'uptime': int(time.time() - app_status['start_time']),
         'total_searches': app_status['total_searches'],
         'indexed_images': app_status['indexed_images'],
-        'processed_pages': app_status['processed_pages']
+        'processed_pages': app_status['processed_pages'],
+        'active_threads': app_status['active_threads'],
+        'max_threads': app_status['max_threads']
     })
 
 @app.route('/ping')
@@ -2111,6 +2036,8 @@ def status():
     uptime = int(time.time() - app_status['start_time'])
     uptime_str = f"{uptime // 3600}ч {(uptime % 3600) // 60}м {uptime % 60}с"
     
+    thread_stats = search_engine.thread_manager.get_stats()
+    
     return jsonify({
         'status': 'active' if app_status['is_active'] else 'inactive',
         'last_self_ping': app_status['last_self_ping'],
@@ -2120,7 +2047,12 @@ def status():
         'processed_pages': app_status['processed_pages'],
         'start_time': app_status['start_time'],
         'uptime': uptime,
-        'uptime_human': uptime_str
+        'uptime_human': uptime_str,
+        'threading': {
+            'active_threads': app_status['active_threads'],
+            'max_threads': app_status['max_threads'],
+            'thread_manager_stats': thread_stats
+        }
     })
 
 # Запускаем само-пинг при старте приложения
@@ -2128,5 +2060,6 @@ start_background_scheduler()
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    logger.info(f"🌐 Starting AriOS Advanced Image Search Server on port {port}...")
+    logger.info(f"🌐 Starting AriOS Parallel Search Server on port {port}...")
+    logger.info(f"🚀 Maximum workers: {search_engine.thread_manager.max_workers}")
     app.run(host='0.0.0.0', port=port, debug=False)
