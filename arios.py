@@ -15,7 +15,6 @@ import hashlib
 import logging
 from collections import defaultdict
 import io
-import queue
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -30,9 +29,7 @@ app_status = {
     'start_time': time.time(),
     'is_active': True,
     'indexed_images': 0,
-    'processed_pages': 0,
-    'active_threads': 0,
-    'max_threads': 0
+    'processed_pages': 0
 }
 
 # Глобальный индекс изображений
@@ -190,6 +187,59 @@ class ImageAnalyzer:
             'fear': 'страх', 'surprise': 'удивление', 'beauty': 'красота', 'truth': 'правда',
             'freedom': 'свобода', 'justice': 'справедливость', 'peace': 'мир', 'war': 'война',
             'dream': 'мечта', 'hope': 'надежда', 'faith': 'вера', 'success': 'успех',
+            
+            # Профессии (100+ слов)
+            'engineer': 'инженер', 'scientist': 'ученый', 'programmer': 'программист', 'designer': 'дизайнер',
+            'architect': 'архитектор', 'builder': 'строитель', 'electrician': 'электрик', 'plumber': 'сантехник',
+            'mechanic': 'механик', 'driver': 'водитель', 'pilot': 'пилот', 'captain': 'капитан',
+            'chef': 'шеф-повар', 'waiter': 'официант', 'manager': 'менеджер', 'director': 'директор',
+            'accountant': 'бухгалтер', 'lawyer': 'юрист', 'judge': 'судья', 'politician': 'политик',
+            'journalist': 'журналист', 'reporter': 'репортер', 'writer': 'писатель', 'poet': 'поэт',
+            
+            # Хобби и развлечения (100+ слов)
+            'game': 'игра', 'sport': 'спорт', 'travel': 'путешествие', 'photography': 'фотография',
+            'reading': 'чтение', 'writing': 'письмо', 'painting': 'рисование', 'drawing': 'рисование',
+            'singing': 'пение', 'dancing': 'танцы', 'cooking': 'готовка', 'gardening': 'садоводство',
+            'fishing': 'рыбалка', 'hunting': 'охота', 'camping': 'кемпинг', 'hiking': 'поход',
+            'shopping': 'шоппинг', 'movies': 'кино', 'theater': 'театр', 'concert': 'концерт',
+            
+            # Здоровье и медицина (50+ слов)
+            'health': 'здоровье', 'medicine': 'медицина', 'hospital': 'больница', 'doctor': 'врач',
+            'nurse': 'медсестра', 'patient': 'пациент', 'treatment': 'лечение', 'surgery': 'хирургия',
+            'vaccine': 'вакцина', 'vitamin': 'витамин', 'exercise': 'упражнение', 'fitness': 'фитнес',
+            'yoga': 'йога', 'meditation': 'медитация', 'therapy': 'терапия',
+            
+            # Бизнес и экономика (50+ слов)
+            'business': 'бизнес', 'economy': 'экономика', 'money': 'деньги', 'bank': 'банк',
+            'market': 'рынок', 'trade': 'торговля', 'investment': 'инвестиция', 'profit': 'прибыль',
+            'company': 'компания', 'office': 'офис', 'meeting': 'встреча', 'contract': 'контракт',
+            'customer': 'клиент', 'product': 'продукт', 'service': 'услуга', 'price': 'цена',
+            
+            # Образование и наука (дополнительно 50+ слов)
+            'education': 'образование', 'learning': 'обучение', 'teaching': 'преподавание',
+            'research': 'исследование', 'discovery': 'открытие', 'invention': 'изобретение',
+            'theory': 'теория', 'practice': 'практика', 'knowledge': 'знание', 'wisdom': 'мудрость',
+            'student': 'студент', 'teacher': 'учитель', 'professor': 'профессор', 'classroom': 'класс',
+            
+            # Природа (дополнительно 50+ слов)
+            'nature': 'природа', 'environment': 'окружающая среда', 'ecology': 'экология',
+            'animal': 'животное', 'plant': 'растение', 'flower': 'цветок', 'tree': 'дерево',
+            'forest': 'лес', 'jungle': 'джунгли', 'savanna': 'саванна', 'tundra': 'тундра',
+            'ecosystem': 'экосистема', 'biodiversity': 'биоразнообразие', 'conservation': 'сохранение',
+            
+            # Технологии будущего (30+ слов)
+            'ai': 'искусственный интеллект', 'robot': 'робот', 'drone': 'дрон',
+            'virtual reality': 'виртуальная реальность', 'augmented reality': 'дополненная реальность',
+            'blockchain': 'блокчейн', 'cryptocurrency': 'криптовалюта', 'bitcoin': 'биткоин',
+            'nanotechnology': 'нанотехнология', 'biotechnology': 'биотехнология',
+            'space exploration': 'космические исследования', 'mars': 'марс', 'moon': 'луна',
+            
+            # Культура и традиции (50+ слов)
+            'culture': 'культура', 'tradition': 'традиция', 'custom': 'обычай',
+            'religion': 'религия', 'faith': 'вера', 'belief': 'верование',
+            'art': 'искусство', 'music': 'музыка', 'dance': 'танец', 'theater': 'театр',
+            'literature': 'литература', 'poetry': 'поэзия', 'philosophy': 'философия',
+            'mythology': 'мифология', 'legend': 'легенда', 'folklore': 'фольклор'
         }
         
     def analyze_image(self, image_url):
@@ -298,58 +348,17 @@ class ImageAnalyzer:
         
         return color_analysis
 
+    def translate_object_name(self, english_name):
+        """Перевод названий объектов"""
+        return self.object_translations.get(english_name, english_name)
+
 # Инициализация анализатора
 image_analyzer = ImageAnalyzer()
-
-class ThreadManager:
-    """Менеджер потоков для управления многопоточным поиском"""
-    
-    def __init__(self, max_workers=15):
-        self.max_workers = max_workers
-        self.active_threads = 0
-        self.completed_tasks = 0
-        self.failed_tasks = 0
-        self.lock = threading.Lock()
-    
-    def update_status(self):
-        """Обновление глобального статуса потоков"""
-        with self.lock:
-            app_status['active_threads'] = self.active_threads
-            app_status['max_threads'] = self.max_workers
-    
-    def task_completed(self, success=True):
-        """Отметить завершение задачи"""
-        with self.lock:
-            self.active_threads -= 1
-            if success:
-                self.completed_tasks += 1
-            else:
-                self.failed_tasks += 1
-            self.update_status()
-    
-    def start_task(self):
-        """Начать новую задачу"""
-        with self.lock:
-            if self.active_threads < self.max_workers:
-                self.active_threads += 1
-                self.update_status()
-                return True
-            return False
-    
-    def get_stats(self):
-        """Получить статистику"""
-        with self.lock:
-            return {
-                'active_threads': self.active_threads,
-                'max_threads': self.max_workers,
-                'completed_tasks': self.completed_tasks,
-                'failed_tasks': self.failed_tasks
-            }
 
 class WebCrawler:
     """Веб-краулер для сканирования страниц и поиска изображений, сайтов и видео"""
     
-    def __init__(self, thread_manager):
+    def __init__(self):
         self.user_agents = [
             'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -357,49 +366,38 @@ class WebCrawler:
         ]
         self.visited_urls = set()
         self.image_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.svg'}
-        self.thread_manager = thread_manager
-        self.lock = threading.Lock()
-    
+        
     def get_random_user_agent(self):
         return random.choice(self.user_agents)
     
     def crawl_page(self, url, query_words, search_type='images'):
         """Сканирование страницы и извлечение контента"""
-        if not self.thread_manager.start_task():
+        if url in self.visited_urls:
             return []
             
+        self.visited_urls.add(url)
+        
         try:
-            with self.lock:
-                if url in self.visited_urls:
-                    self.thread_manager.task_completed(False)
-                    return []
-                self.visited_urls.add(url)
-            
             headers = {'User-Agent': self.get_random_user_agent()}
             response = requests.get(url, headers=headers, timeout=8)
             
             if response.status_code != 200:
-                self.thread_manager.task_completed(False)
                 return []
             
             app_status['processed_pages'] += 1
             soup = BeautifulSoup(response.text, 'html.parser')
             
             if search_type == 'images':
-                results = self._extract_images(soup, url, query_words)
+                return self._extract_images(soup, url, query_words)
             elif search_type == 'websites':
-                results = self._extract_websites(soup, url, query_words)
+                return self._extract_websites(soup, url, query_words)
             elif search_type == 'videos':
-                results = self._extract_videos(soup, url, query_words)
+                return self._extract_videos(soup, url, query_words)
             else:
-                results = []
-            
-            self.thread_manager.task_completed(True)
-            return results
+                return []
             
         except Exception as e:
             logger.error(f"❌ Ошибка сканирования {url}: {e}")
-            self.thread_manager.task_completed(False)
             return []
 
     def _extract_images(self, soup, page_url, query_words):
@@ -407,7 +405,7 @@ class WebCrawler:
         images_data = []
         img_tags = soup.find_all('img')
         
-        for img in img_tags[:30]:
+        for img in img_tags[:30]:  # Ограничиваем для производительности
             try:
                 image_info = self._extract_image_data(img, page_url, query_words)
                 if image_info:
@@ -421,9 +419,10 @@ class WebCrawler:
         """Извлечение веб-сайтов со страницы"""
         websites_data = []
         
+        # Поиск ссылок на страницы
         links = soup.find_all('a', href=True)
         
-        for link in links[:20]:
+        for link in links[:20]:  # Ограничиваем количество
             try:
                 website_info = self._extract_website_data(link, page_url, query_words)
                 if website_info:
@@ -437,6 +436,7 @@ class WebCrawler:
         """Извлечение видео со страницы"""
         videos_data = []
         
+        # Поиск видео тегов
         video_tags = soup.find_all('video')
         for video in video_tags[:10]:
             try:
@@ -446,6 +446,7 @@ class WebCrawler:
             except Exception as e:
                 continue
         
+        # Поиск iframe с видео (YouTube, Vimeo и т.д.)
         iframe_tags = soup.find_all('iframe')
         for iframe in iframe_tags[:10]:
             try:
@@ -460,6 +461,7 @@ class WebCrawler:
     def _extract_image_data(self, img_tag, page_url, query_words):
         """Извлечение метаданных изображения"""
         try:
+            # Получение URL изображения
             img_src = (img_tag.get('src') or 
                       img_tag.get('data-src') or 
                       img_tag.get('data-lazy') or 
@@ -468,6 +470,7 @@ class WebCrawler:
             if not img_src:
                 return None
             
+            # Преобразование относительных URL
             if img_src.startswith('//'):
                 img_src = 'https:' + img_src
             elif img_src.startswith('/'):
@@ -475,6 +478,7 @@ class WebCrawler:
             elif not img_src.startswith('http'):
                 return None
             
+            # Пропускаем маленькие изображения и иконки
             width = img_tag.get('width')
             height = img_tag.get('height')
             if width and height:
@@ -484,14 +488,21 @@ class WebCrawler:
                 except:
                     pass
             
+            # Пропускаем SVG и иконки
             if any(icon in img_src.lower() for icon in ['icon', 'logo', 'sprite', 'spacer', 'pixel']):
                 return None
             
+            # Извлечение метаданных
             alt_text = img_tag.get('alt', '')
             title_text = img_tag.get('title', '')
+            
+            # Извлечение контекста
             context = self._get_image_context(img_tag)
+            
+            # Анализ имени файла
             filename = self._analyze_filename(img_src)
             
+            # Создание уникального ID
             image_id = hashlib.md5(img_src.encode()).hexdigest()
             
             image_data = {
@@ -512,6 +523,7 @@ class WebCrawler:
             return image_data
             
         except Exception as e:
+            logger.error(f"❌ Ошибка извлечения данных изображения: {e}")
             return None
 
     def _extract_website_data(self, link_tag, page_url, query_words):
@@ -521,6 +533,7 @@ class WebCrawler:
             if not href or href.startswith('#') or href.startswith('javascript:'):
                 return None
             
+            # Преобразование относительных URL
             if href.startswith('//'):
                 href = 'https:' + href
             elif href.startswith('/'):
@@ -528,14 +541,18 @@ class WebCrawler:
             elif not href.startswith('http'):
                 return None
             
+            # Получение текста ссылки и контекста
             link_text = link_tag.get_text(strip=True)
             if not link_text or len(link_text) < 10:
                 return None
             
+            # Извлечение описания
             description = self._get_link_description(link_tag)
+            
+            # Расчет релевантности
             relevance_score = self._calculate_website_relevance(link_text, description, query_words)
             
-            if relevance_score < 1:
+            if relevance_score < 1:  # Минимальный порог релевантности
                 return None
             
             website_data = {
@@ -550,6 +567,7 @@ class WebCrawler:
             return website_data
             
         except Exception as e:
+            logger.error(f"❌ Ошибка извлечения данных сайта: {e}")
             return None
 
     def _extract_video_data(self, video_tag, page_url, query_words):
@@ -561,6 +579,7 @@ class WebCrawler:
             if not video_src:
                 return None
             
+            # Преобразование относительных URL
             if video_src.startswith('//'):
                 video_src = 'https:' + video_src
             elif video_src.startswith('/'):
@@ -568,9 +587,11 @@ class WebCrawler:
             elif not video_src.startswith('http'):
                 return None
             
+            # Получение метаданных
             title = video_tag.get('title', '') or self._get_video_title(video_tag)
             duration = video_tag.get('duration') or self._estimate_video_duration(video_tag)
             
+            # Создание миниатюры (если есть poster)
             thumbnail = video_tag.get('poster', '')
             if not thumbnail:
                 thumbnail = self._generate_video_placeholder()
@@ -587,6 +608,7 @@ class WebCrawler:
             return video_data
             
         except Exception as e:
+            logger.error(f"❌ Ошибка извлечения данных видео: {e}")
             return None
 
     def _extract_iframe_video_data(self, iframe_tag, page_url, query_words):
@@ -596,10 +618,12 @@ class WebCrawler:
             if not src:
                 return None
             
+            # Проверяем популярные видео-платформы
             video_platforms = ['youtube', 'vimeo', 'dailymotion', 'rutube']
             if not any(platform in src.lower() for platform in video_platforms):
                 return None
             
+            # Получаем заголовок из iframe или родительского элемента
             title = iframe_tag.get('title', '') or self._get_iframe_title(iframe_tag)
             
             video_data = {
@@ -614,6 +638,7 @@ class WebCrawler:
             return video_data
             
         except Exception as e:
+            logger.error(f"❌ Ошибка извлечения данных iframe видео: {e}")
             return None
 
     def _get_image_context(self, img_tag):
@@ -621,6 +646,7 @@ class WebCrawler:
         try:
             context_parts = []
             
+            # Текст из родительского элемента
             parent = img_tag.parent
             if parent:
                 temp_parent = parent.copy()
@@ -630,14 +656,17 @@ class WebCrawler:
                 if parent_text:
                     context_parts.append(parent_text)
             
+            # Заголовок страницы
             title_tag = img_tag.find_parent().find_previous(['h1', 'h2', 'h3'])
             if title_tag:
                 context_parts.append(title_tag.get_text(strip=True))
             
+            # Подпись (figcaption)
             figcaption = img_tag.find_next('figcaption')
             if figcaption:
                 context_parts.append(figcaption.get_text(strip=True))
             
+            # Ближайший абзац
             paragraph = img_tag.find_previous('p') or img_tag.find_next('p')
             if paragraph:
                 context_parts.append(paragraph.get_text(strip=True)[:200])
@@ -652,6 +681,7 @@ class WebCrawler:
         try:
             description_parts = []
             
+            # Родительский элемент
             parent = link_tag.parent
             if parent:
                 temp_parent = parent.copy()
@@ -661,6 +691,7 @@ class WebCrawler:
                 if parent_text:
                     description_parts.append(parent_text)
             
+            # Следующий элемент после ссылки
             next_sibling = link_tag.find_next_sibling()
             if next_sibling:
                 next_text = next_sibling.get_text(strip=True)
@@ -675,8 +706,9 @@ class WebCrawler:
     def _get_video_title(self, video_tag):
         """Извлечение заголовка видео"""
         try:
+            # Поиск заголовка в родительских элементах
             parent = video_tag.parent
-            for _ in range(3):
+            for _ in range(3):  # Проверяем 3 уровня вверх
                 if parent:
                     title_elem = parent.find(['h1', 'h2', 'h3', 'strong', 'b'])
                     if title_elem:
@@ -701,12 +733,16 @@ class WebCrawler:
             return ""
 
     def _estimate_video_duration(self, video_tag):
+        """Оценка длительности видео"""
+        # В реальной реализации здесь можно анализировать метаданные
         return "Неизвестно"
 
     def _generate_video_placeholder(self):
+        """Генерация placeholder для видео"""
         return "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjE4MCIgdmlld0JveD0iMCAwIDMwMCAxODAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIzMDAiIGhlaWdodD0iMTgwIiBmaWxsPSIjRjNGNEY2Ii8+CjxwYXRoIGQ9Ik0xMjAgODBMMTYwIDEwMEwxMjAgMTIwVjgwWiIgZmlsbD0iIzlDQTNBRiIvPgo8L3N2Zz4="
 
     def _get_display_url(self, url):
+        """Форматирование URL для отображения"""
         try:
             parsed = urlparse(url)
             return f"{parsed.netloc}{parsed.path}"
@@ -714,34 +750,41 @@ class WebCrawler:
             return url
 
     def _analyze_filename(self, img_url):
+        """Анализ имени файла изображения"""
         try:
             filename = os.path.basename(urlparse(img_url).path)
             name_without_ext = os.path.splitext(filename)[0]
+            
+            # Удаляем цифры и специальные символы
             clean_name = re.sub(r'[\d_-]+', ' ', name_without_ext)
             clean_name = re.sub(r'\s+', ' ', clean_name).strip()
+            
             return clean_name if len(clean_name) > 2 else ""
         except:
             return ""
 
     def _calculate_relevance(self, alt, title, filename, context, query_words):
+        """Расчет релевантности на основе метаданных"""
         score = 0
         all_text = f"{alt} {title} {filename} {context}".lower()
         
         for word in query_words:
             if len(word) > 2:
                 if word in all_text:
+                    # Разный вес для разных источников
                     if word in alt.lower():
-                        score += 3
+                        score += 3  # Высокий вес для alt
                     if word in title.lower():
-                        score += 2
+                        score += 2  # Средний вес для title
                     if word in filename.lower():
-                        score += 2
+                        score += 2  # Средний вес для имени файла
                     if word in context.lower():
-                        score += 1
+                        score += 1  # Низкий вес для контекста
         
         return score
 
     def _calculate_website_relevance(self, title, description, query_words):
+        """Расчет релевантности для веб-сайтов"""
         score = 0
         all_text = f"{title} {description}".lower()
         
@@ -755,6 +798,7 @@ class WebCrawler:
         return score
 
     def _calculate_video_relevance(self, title, query_words):
+        """Расчет релевантности для видео"""
         score = 0
         title_lower = title.lower()
         
@@ -764,12 +808,11 @@ class WebCrawler:
         
         return score
 
-class ParallelSearchEngine:
-    """Параллельная поисковая система с многопоточностью"""
+class SearchEngine:
+    """Универсальная поисковая система для изображений, сайтов и видео"""
     
-    def __init__(self, max_workers=15):
-        self.thread_manager = ThreadManager(max_workers)
-        self.crawler = WebCrawler(self.thread_manager)
+    def __init__(self):
+        self.crawler = WebCrawler()
         self.search_urls = {
             'images': [
                 "https://unsplash.com/s/photos/",
@@ -778,29 +821,24 @@ class ParallelSearchEngine:
                 "https://www.flickr.com/search/?text=",
                 "https://www.shutterstock.com/search/",
                 "https://commons.wikimedia.org/w/index.php?search=",
-                "https://www.deviantart.com/search?q=",
-                "https://www.artstation.com/search?q=",
             ],
             'websites': [
                 "https://www.google.com/search?q=",
                 "https://www.bing.com/search?q=",
                 "https://yandex.ru/search/?text=",
                 "https://duckduckgo.com/html/?q=",
-                "https://search.yahoo.com/search?p=",
-                "https://www.baidu.com/s?wd=",
             ],
             'videos': [
                 "https://www.youtube.com/results?search_query=",
                 "https://vimeo.com/search?q=",
                 "https://www.dailymotion.com/search/",
                 "https://rutube.ru/search/?q=",
-                "https://www.tiktok.com/search?q=",
             ]
         }
         
     def search(self, query, max_results=20, search_types=None):
-        """Основной метод поиска с многопоточностью"""
-        logger.info(f"🔍 Начало параллельного поиска для: '{query}'")
+        """Основной метод поиска"""
+        logger.info(f"🔍 Начало поиска для: '{query}'")
         
         if search_types is None:
             search_types = ['images', 'websites', 'videos']
@@ -809,76 +847,60 @@ class ParallelSearchEngine:
         if not query_words:
             return {}
         
-        start_time = time.time()
         results = {}
         
-        # Создаем пул потоков для каждого типа поиска
-        with concurrent.futures.ThreadPoolExecutor(max_workers=len(search_types)) as main_executor:
-            future_to_type = {}
+        # Поиск по всем запрошенным типам
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+            futures = {}
             
             for search_type in search_types:
                 if search_type in self.search_urls:
-                    future = main_executor.submit(
-                        self._parallel_search_type,
+                    future = executor.submit(
+                        self._search_type, 
                         query, query_words, search_type, max_results
                     )
-                    future_to_type[future] = search_type
+                    futures[search_type] = future
             
-            # Собираем результаты
-            for future in concurrent.futures.as_completed(future_to_type):
-                search_type = future_to_type[future]
+            # Сбор результатов
+            for search_type, future in futures.items():
                 try:
-                    results[search_type] = future.result(timeout=25)
-                    logger.info(f"✅ {search_type} поиск завершен: {len(results[search_type])} результатов")
+                    results[search_type] = future.result(timeout=15)
                 except Exception as e:
-                    logger.error(f"❌ Ошибка {search_type} поиска: {e}")
+                    logger.error(f"❌ Ошибка поиска {search_type}: {e}")
                     results[search_type] = []
         
-        search_time = time.time() - start_time
-        
-        logger.info(f"🎯 Параллельный поиск завершен за {search_time:.2f}с. "
-                   f"Активные потоки: {self.thread_manager.active_threads}, "
-                   f"Статистика: {self.thread_manager.get_stats()}")
+        logger.info(f"✅ Поиск завершен. Найдено: "
+                   f"Изображений: {len(results.get('images', []))}, "
+                   f"Сайтов: {len(results.get('websites', []))}, "
+                   f"Видео: {len(results.get('videos', []))}")
         
         return results
 
-    def _parallel_search_type(self, query, query_words, search_type, max_results):
-        """Параллельный поиск по конкретному типу контента"""
+    def _search_type(self, query, query_words, search_type, max_results):
+        """Поиск по конкретному типу контента"""
         all_results = []
-        urls = self.search_urls[search_type]
         
-        # Создаем дополнительные URL для более широкого поиска
-        additional_urls = self._generate_additional_urls(query, search_type)
-        all_urls = urls + additional_urls
-        
-        logger.info(f"🚀 Запуск {len(all_urls)} потоков для {search_type} поиска")
-        
-        # Используем ThreadPoolExecutor для параллельного сканирования URL
-        with concurrent.futures.ThreadPoolExecutor(max_workers=min(8, len(all_urls))) as executor:
-            future_to_url = {}
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+            futures = []
             
-            for url in all_urls:
-                search_url = url + quote_plus(query)
+            # Сканирование специализированных сайтов
+            for site in self.search_urls[search_type]:
+                search_url = site + quote_plus(query)
                 future = executor.submit(
-                    self.crawler.crawl_page,
+                    self.crawler.crawl_page, 
                     search_url, query_words, search_type
                 )
-                future_to_url[future] = search_url
+                futures.append(future)
             
-            # Собираем результаты с таймаутом
-            for future in concurrent.futures.as_completed(future_to_url):
-                url = future_to_url[future]
+            # Сбор результатов
+            for future in concurrent.futures.as_completed(futures):
                 try:
-                    items = future.result(timeout=12)
-                    if items:
-                        all_results.extend(items)
-                        logger.debug(f"📥 Получено {len(items)} результатов с {urlparse(url).netloc}")
-                except concurrent.futures.TimeoutError:
-                    logger.warning(f"⏰ Таймаут для {url}")
+                    items = future.result(timeout=10)
+                    all_results.extend(items)
                 except Exception as e:
-                    logger.debug(f"❌ Ошибка для {url}: {e}")
+                    continue
         
-        # Ранжирование результатов
+        # Ранжирование и ограничение результатов
         if search_type == 'images':
             ranked_results = self._rank_images(all_results, query_words)
         elif search_type == 'websites':
@@ -890,46 +912,28 @@ class ParallelSearchEngine:
         
         return ranked_results[:max_results]
 
-    def _generate_additional_urls(self, query, search_type):
-        """Генерация дополнительных URL для поиска"""
-        base_urls = []
-        query_encoded = quote_plus(query)
-        
-        if search_type == 'images':
-            base_urls = [
-                f"https://www.google.com/search?q={query_encoded}&tbm=isch",
-                f"https://www.bing.com/images/search?q={query_encoded}",
-                f"https://yandex.ru/images/search?text={query_encoded}",
-            ]
-        elif search_type == 'websites':
-            base_urls = [
-                f"https://www.google.com/search?q={query_encoded}",
-                f"https://www.bing.com/search?q={query_encoded}",
-                f"https://yandex.ru/search/?text={query_encoded}",
-            ]
-        elif search_type == 'videos':
-            base_urls = [
-                f"https://www.youtube.com/results?search_query={query_encoded}",
-                f"https://vimeo.com/search?q={query_encoded}",
-            ]
-        
-        return base_urls
-
     def _rank_images(self, images, query_words):
         """Ранжирование изображений"""
         scored_images = []
         
         for image in images:
             try:
+                # Базовый счет на основе метаданных
                 final_score = image.get('relevance_score', 0)
+                
+                # Бонус за качественные источники
                 final_score += self._calculate_domain_authority(image.get('domain', ''))
+                
+                # Бонус за высокое качество изображения
                 final_score += self._estimate_image_quality(image)
                 
+                # Анализ компьютерным зрением
                 if not image.get('vision_analyzed', False):
                     vision_analysis = image_analyzer.analyze_image(image['url'])
                     image['vision_analysis'] = vision_analysis
                     image['vision_analyzed'] = True
                     
+                    # Обновление релевантности на основе анализа зрения
                     vision_score = self._calculate_vision_relevance(vision_analysis, query_words)
                     final_score += vision_score
                 
@@ -938,6 +942,7 @@ class ParallelSearchEngine:
             except Exception as e:
                 continue
         
+        # Сортировка по убыванию релевантности
         scored_images.sort(key=lambda x: x[0], reverse=True)
         return [img for score, img in scored_images]
 
@@ -948,8 +953,11 @@ class ParallelSearchEngine:
         for website in websites:
             try:
                 final_score = website.get('relevance_score', 0)
+                
+                # Бонус за авторитетные домены
                 final_score += self._calculate_domain_authority(website.get('domain', ''))
                 
+                # Бонус за качественное описание
                 if len(website.get('description', '')) > 50:
                     final_score += 1
                 
@@ -969,10 +977,12 @@ class ParallelSearchEngine:
             try:
                 final_score = video.get('relevance_score', 0)
                 
+                # Бонус за популярные платформы
                 if any(platform in video.get('channel', '').lower() 
                       for platform in ['youtube', 'vimeo']):
                     final_score += 2
                 
+                # Бонус за наличие миниатюры
                 if video.get('thumbnail'):
                     final_score += 1
                 
@@ -985,6 +995,7 @@ class ParallelSearchEngine:
         return [video for score, video in scored_videos]
 
     def _calculate_domain_authority(self, domain):
+        """Расчет авторитетности домена"""
         authority_domains = {
             'unsplash.com': 3, 'pixabay.com': 3, 'pexels.com': 3,
             'flickr.com': 2, 'shutterstock.com': 2, 'gettyimages.com': 2,
@@ -994,8 +1005,10 @@ class ParallelSearchEngine:
         return authority_domains.get(domain, 0)
 
     def _estimate_image_quality(self, image_data):
+        """Оценка качества изображения"""
         score = 0
         
+        # Бонус за наличие детальных метаданных
         if len(image_data.get('alt', '')) > 10:
             score += 1
         if len(image_data.get('title', '')) > 5:
@@ -1006,6 +1019,7 @@ class ParallelSearchEngine:
         return score
 
     def _calculate_vision_relevance(self, vision_analysis, query_words):
+        """Расчет релевантности на основе анализа компьютерного зрения"""
         score = 0
         
         for obj, confidence in vision_analysis.items():
@@ -1016,19 +1030,24 @@ class ParallelSearchEngine:
         return score
 
     def _is_synonym(self, word, object_name):
+        """Проверка синонимичности"""
         synonyms = {
             'кот': ['кошка', 'котенок'],
             'собака': ['пес', 'щенок'],
             'машина': ['автомобиль', 'тачка'],
             'человек': ['люди', 'персона'],
             'цветок': ['цветы', 'букет'],
+            'дом': ['здание', 'строение'],
+            'горы': ['гора', 'вершина'],
+            'пляж': ['берег', 'песок'],
+            'город': ['улица', 'здания']
         }
         return word in synonyms.get(object_name, [])
 
-# Инициализация поисковой системы с многопоточностью
-search_engine = ParallelSearchEngine(max_workers=20)
+# Инициализация поисковой системы
+search_engine = SearchEngine()
 
-# HTML шаблон (остается практически без изменений, но добавим информацию о потоках)
+# HTML шаблон (остается без изменений)
 HTML_TEMPLATE = '''
 <!DOCTYPE html>
 <html lang="ru">
@@ -1471,47 +1490,19 @@ HTML_TEMPLATE = '''
             font-size: 12px;
             color: #0c4a6e;
         }
-        
-        .threads-info {
-            background: #fef3c7;
-            border: 1px solid #f59e0b;
-            padding: 8px 12px;
-            border-radius: 6px;
-            margin: 5px 0;
-            font-size: 11px;
-            color: #92400e;
-        }
-        
-        .progress-bar {
-            width: 100%;
-            height: 6px;
-            background: #e5e7eb;
-            border-radius: 3px;
-            overflow: hidden;
-            margin: 5px 0;
-        }
-        
-        .progress-fill {
-            height: 100%;
-            background: linear-gradient(90deg, #10b981, #059669);
-            transition: width 0.3s ease;
-        }
     </style>
 </head>
 <body>
     <div class="main-container">
         <div class="search-container">
             <div class="logo"><a href="/">AriOS</a></div>
-            <div class="tagline">Продвинутая поисковая система • Многопоточный поиск • Высокая скорость</div>
+            <div class="tagline">Продвинутая поисковая система • Умный поиск изображений, сайтов и видео</div>
             
             {% if show_status %}
                 {% if is_active %}
                 <div class="status-info">
                     ✅ Сервис активен • Проиндексировано: {{ indexed_images }} изображений • 
                     Обработано: {{ processed_pages }} страниц • Поисков: {{ total_searches }}
-                    {% if active_threads > 0 %}
-                    <br>🎯 Активные потоки: {{ active_threads }}/{{ max_threads }}
-                    {% endif %}
                 </div>
                 {% else %}
                 <div class="status-warning">
@@ -1521,29 +1512,29 @@ HTML_TEMPLATE = '''
             {% endif %}
             
             <form action="/search" method="GET" id="searchForm">
-                <input type="text" name="q" class="search-box" value="{{ query }}" placeholder="Введите запрос для многопоточного поиска..." autofocus>
+                <input type="text" name="q" class="search-box" value="{{ query }}" placeholder="Введите запрос для поиска изображений, сайтов и видео..." autofocus>
                 <br>
-                <button type="submit" class="search-button">🚀 Найти в AriOS</button>
-                <button type="button" class="search-button" style="background: #6b7280;" onclick="location.href='/?status=true'">📊 Статус</button>
+                <button type="submit" class="search-button">Найти в AriOS</button>
+                <button type="button" class="search-button" style="background: #6b7280;" onclick="location.href='/?status=true'">Статус</button>
             </form>
             
             {% if not results and not images and not videos and not error and not loading %}
             <div class="quick-search">
                 <strong>Попробуйте найти:</strong><br>
-                <button class="quick-search-btn" onclick="setSearch('кошки котята')">🐱 Кошки</button>
-                <button class="quick-search-btn" onclick="setSearch('горы природа')">🏔️ Горы</button>
-                <button class="quick-search-btn" onclick="setSearch('цветы розы')">🌹 Цветы</button>
-                <button class="quick-search-btn" onclick="setSearch('город небоскребы')">🏙️ Город</button>
-                <button class="quick-search-btn" onclick="setSearch('пляж море')">🏖️ Пляж</button>
+                <button class="quick-search-btn" onclick="setSearch('кошки котята')">Кошки</button>
+                <button class="quick-search-btn" onclick="setSearch('горы природа')">Горы</button>
+                <button class="quick-search-btn" onclick="setSearch('цветы розы')">Цветы</button>
+                <button class="quick-search-btn" onclick="setSearch('город небоскребы')">Город</button>
+                <button class="quick-search-btn" onclick="setSearch('пляж море')">Пляж</button>
             </div>
             {% endif %}
             
             <div class="feature-badges">
-                <div class="badge">🚀 Многопоточность</div>
+                <div class="badge">🔍 Умный поиск</div>
                 <div class="badge">📷 Компьютерное зрение</div>
                 <div class="badge">🌐 Сайты и видео</div>
-                <div class="badge">⚡ Высокая скорость</div>
-                <div class="badge">🎯 Умный поиск</div>
+                <div class="badge">⚡ Быстрый анализ</div>
+                <div class="badge">🎯 Точные результаты</div>
             </div>
             
             {% if error %}
@@ -1552,16 +1543,9 @@ HTML_TEMPLATE = '''
             
             {% if loading %}
             <div class="loading">
-                🔍 Параллельный поиск "{{ query }}"...
-                <div class="threads-info">
-                    🎯 Активные потоки: {{ active_threads }}/{{ max_threads }} • 
-                    📊 Обработано страниц: {{ processed_pages }}
-                </div>
-                <div class="progress-bar">
-                    <div class="progress-fill" style="width: 60%"></div>
-                </div>
+                🔍 Ищем "{{ query }}"...
                 <div class="stats-info">
-                    Этап 1: Запуск потоков... | Этап 2: Параллельное сканирование... | Этап 3: Анализ и ранжирование...
+                    Этап 1: Сканирование сайтов... | Этап 2: Анализ контента... | Этап 3: Ранжирование...
                 </div>
             </div>
             {% endif %}
@@ -1569,21 +1553,14 @@ HTML_TEMPLATE = '''
             {% if results or images or videos %}
             <div class="results-container">
                 <div class="results-header">
-                    🎯 Найдено: {{ total_results }} • ⚡ Время: {{ search_time }}с • 
-                    📊 Запрос: "{{ query }}" • 🚀 Алгоритм: параллельный поиск
+                    Найдено: {{ total_results }} • Время: {{ search_time }}с • 
+                    Запрос: "{{ query }}" • Алгоритм: интеллектуальный поиск
                 </div>
                 
                 <div class="search-stats">
-                    🔍 <strong>Параллельный алгоритм поиска:</strong> 
-                    Запуск 15+ потоков → Сканирование 20+ источников → Анализ метаданных → Компьютерное зрение → Многофакторное ранжирование
+                    🔍 <strong>Алгоритм поиска:</strong> 
+                    Сканирование 10+ источников → Анализ метаданных → Компьютерное зрение → Многофакторное ранжирование
                 </div>
-                
-                {% if active_threads > 0 %}
-                <div class="threads-info">
-                    ⚡ Поиск продолжается в фоновом режиме • Активные потоки: {{ active_threads }} • 
-                    Обновление результатов каждые 5 секунд...
-                </div>
-                {% endif %}
                 
                 <!-- Панель фильтров -->
                 <div class="filter-tabs">
@@ -1691,7 +1668,7 @@ HTML_TEMPLATE = '''
                     <div class="section-title">📷 Изображения ({{ images_count }})</div>
                     <div class="stats-info">
                         🔍 <strong>Технологии поиска:</strong> 
-                        Параллельное сканирование 10+ фото-сайтов → Анализ alt/text + Компьютерное зрение → Ранжирование по релевантности
+                        Сканирование Unsplash, Pixabay, Pexels + Анализ alt/text + Компьютерное зрение + Ранжирование по релевантности
                     </div>
                     <div class="images-container">
                         {% for image in images %}
@@ -1751,9 +1728,9 @@ HTML_TEMPLATE = '''
         </div>
         
         <div class="footer">
-            © 2024 AriOS • Продвинутая поисковая система • 🚀 Многопоточный поиск • 
-            <a href="/status" style="color: #6366f1;">📊 Статус</a> • 
-            <a href="/about" style="color: #6366f1;">ℹ️ О системе</a>
+            © 2024 AriOS • Продвинутая поисковая система • Компьютерное зрение • 
+            <a href="/status" style="color: #6366f1;">Статус</a> • 
+            <a href="/about" style="color: #6366f1;">О системе</a>
         </div>
     </div>
 
@@ -1764,19 +1741,27 @@ HTML_TEMPLATE = '''
         }
         
         function showContent(type) {
+            // Скрываем все контент-блоки
             document.querySelectorAll('.content-type').forEach(el => {
                 el.classList.remove('active');
             });
+            
+            // Показываем выбранный контент-блок
             document.getElementById('content-' + type).classList.add('active');
+            
+            // Обновляем активную вкладку
             document.querySelectorAll('.filter-tab').forEach(tab => {
                 tab.classList.remove('active');
             });
             event.target.classList.add('active');
+            
+            // Сохраняем выбранную вкладку в URL
             const url = new URL(window.location);
             url.searchParams.set('tab', type);
             window.history.replaceState({}, '', url);
         }
         
+        // Восстанавливаем выбранную вкладку при загрузке
         document.addEventListener('DOMContentLoaded', function() {
             const urlParams = new URLSearchParams(window.location.search);
             const savedTab = urlParams.get('tab');
@@ -1786,13 +1771,6 @@ HTML_TEMPLATE = '''
         });
         
         document.querySelector('.search-box').focus();
-        
-        // Авто-обновление статуса потоков
-        {% if active_threads > 0 %}
-        setTimeout(() => {
-            window.location.reload();
-        }, 5000);
-        {% endif %}
     </script>
 </body>
 </html>
@@ -1902,9 +1880,7 @@ def home():
                                 images_count=0,
                                 videos_count=0,
                                 indexed_images=app_status['indexed_images'],
-                                processed_pages=app_status['processed_pages'],
-                                active_threads=app_status['active_threads'],
-                                max_threads=app_status['max_threads'])
+                                processed_pages=app_status['processed_pages'])
 
 @app.route('/search')
 def search():
@@ -1930,16 +1906,14 @@ def search():
                                    images_count=0,
                                    videos_count=0,
                                    indexed_images=app_status['indexed_images'],
-                                   processed_pages=app_status['processed_pages'],
-                                   active_threads=app_status['active_threads'],
-                                   max_threads=app_status['max_threads'])
+                                   processed_pages=app_status['processed_pages'])
     
     try:
         app_status['total_searches'] += 1
         
         start_time = time.time()
         
-        # Используем параллельную поисковую систему
+        # Используем универсальную поисковую систему
         search_results = search_engine.search(query, max_results=20)
         
         results = search_results.get('websites', [])
@@ -1979,9 +1953,7 @@ def search():
                                    images_count=images_count,
                                    videos_count=videos_count,
                                    indexed_images=app_status['indexed_images'],
-                                   processed_pages=app_status['processed_pages'],
-                                   active_threads=app_status['active_threads'],
-                                   max_threads=app_status['max_threads'])
+                                   processed_pages=app_status['processed_pages'])
     
     except Exception as e:
         logger.error(f"❌ Search error: {e}")
@@ -2001,9 +1973,7 @@ def search():
                                    images_count=0,
                                    videos_count=0,
                                    indexed_images=app_status['indexed_images'],
-                                   processed_pages=app_status['processed_pages'],
-                                   active_threads=app_status['active_threads'],
-                                   max_threads=app_status['max_threads'])
+                                   processed_pages=app_status['processed_pages'])
 
 @app.route('/health')
 def health():
@@ -2014,9 +1984,7 @@ def health():
         'uptime': int(time.time() - app_status['start_time']),
         'total_searches': app_status['total_searches'],
         'indexed_images': app_status['indexed_images'],
-        'processed_pages': app_status['processed_pages'],
-        'active_threads': app_status['active_threads'],
-        'max_threads': app_status['max_threads']
+        'processed_pages': app_status['processed_pages']
     })
 
 @app.route('/ping')
@@ -2036,8 +2004,6 @@ def status():
     uptime = int(time.time() - app_status['start_time'])
     uptime_str = f"{uptime // 3600}ч {(uptime % 3600) // 60}м {uptime % 60}с"
     
-    thread_stats = search_engine.thread_manager.get_stats()
-    
     return jsonify({
         'status': 'active' if app_status['is_active'] else 'inactive',
         'last_self_ping': app_status['last_self_ping'],
@@ -2047,12 +2013,7 @@ def status():
         'processed_pages': app_status['processed_pages'],
         'start_time': app_status['start_time'],
         'uptime': uptime,
-        'uptime_human': uptime_str,
-        'threading': {
-            'active_threads': app_status['active_threads'],
-            'max_threads': app_status['max_threads'],
-            'thread_manager_stats': thread_stats
-        }
+        'uptime_human': uptime_str
     })
 
 # Запускаем само-пинг при старте приложения
@@ -2060,6 +2021,5 @@ start_background_scheduler()
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    logger.info(f"🌐 Starting AriOS Parallel Search Server on port {port}...")
-    logger.info(f"🚀 Maximum workers: {search_engine.thread_manager.max_workers}")
+    logger.info(f"🌐 Starting AriOS Advanced Search Server on port {port}...")
     app.run(host='0.0.0.0', port=port, debug=False)
